@@ -32,6 +32,17 @@ PointCloud/
 └─ CMakeLists.txt   CMake 构建入口
 ```
 
+## 核心文档
+
+为避免多份旧说明重复或互相矛盾，当前推荐优先阅读 `docs/architecture/` 下的四份整理文档：
+
+- [PCAP、视频、点云与泊位检测链路](docs/architecture/pcap_video_pointcloud_berth_flow.md)
+- [SLAM 建图、坐标系、保存加载与界面渲染](docs/architecture/slam_map_coordinate_rendering.md)
+- [实时/历史地图与泊位投递](docs/architecture/map_export_protocol.md)
+- [运行操作、日志判据与代码索引](docs/architecture/operation_and_code_index.md)
+
+这些文档按当前源码和实际演示流程校正了入口函数、关键帧参数、`.slammap` 泊位保存方式、历史 Tile 投递和 Ship 端边界；早期设计稿和实施计划仍保留在 `docs/superpowers/`，用于追溯开发过程，不作为当前运行手册。
+
 ## 依赖环境
 
 - Windows 10/11
