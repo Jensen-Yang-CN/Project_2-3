@@ -1,0 +1,23 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "ucrt64-debug-bridge",
+      "displayName": "ucrt64 Debug + 桥洞检测",
+      "description": "MinGW ucrt64，启用 PCL/CUDA 桥洞（VS 2026 cl + nvcc）",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build-PointCloud-ucrtbuild-Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ENABLE_BRIDGE_DETECT": "ON",
+        "VS_INSTALL_DIR": "C:/Program Files/Microsoft Visual Studio/18/Community"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "ucrt64-debug-bridge",
+      "configurePreset": "ucrt64-debug-bridge"
+    }
+  ]
+}

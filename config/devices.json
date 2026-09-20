@@ -1,0 +1,104 @@
+[
+  {
+    "name": "210",
+    "type": "Lidar_LS",
+    "ip": "192.168.1.210",
+    "port": 2369,
+    "extraPort": 0,
+    "metadata": {
+      "multicast_group": "226.1.1.210",
+      "bind_port": 6610
+    }
+  },
+  {
+    "name": "211",
+    "type": "Lidar_LS",
+    "ip": "192.168.1.211",
+    "port": 2369,
+    "extraPort": 0,
+    "metadata": {
+      "multicast_group": "226.1.1.211",
+      "bind_port": 6611
+    }
+  },
+  {
+    "name": "201",
+    "type": "Lidar_RS",
+    "ip": "192.168.1.201",
+    "port": 6699,
+    "extraPort": 7788,
+    "metadata": {}
+  },
+  {
+    "name": "213",
+    "type": "Lidar_RS",
+    "ip": "192.168.1.213",
+    "port": 2369,
+    "extraPort": 2368,
+    "metadata": {}
+  },
+  {
+    "name": "214",
+    "type": "Lidar_RS",
+    "ip": "192.168.1.214",
+    "port": 2369,
+    "extraPort": 2368,
+    "metadata": {}
+  },
+  {
+    "name": "IMU",
+    "type": "IMU",
+    "ip": "101.1.101.20",
+    "port": 4353,
+    "extraPort": 0,
+    "metadata": {}
+  },
+  {
+    "name": "h265Right",
+    "type": "Camera_H265",
+    "ip": "192.168.58.223",
+    "port": 0,
+    "extraPort": 0,
+    "metadata": {
+      "dispatch_by_ip": true,
+      "parser_name": "h265Right",
+      "pcap_alias_ips": ["192.168.1.220", "192.168.58.60"],
+      "rtsp_url": "rtsp://192.168.58.223/live.sdp",
+      "stream_name": "USV02-右固连相机"
+    }
+  },
+  {
+    "name": "h265Left",
+    "type": "Camera_H265",
+    "ip": "192.168.58.222",
+    "port": 0,
+    "extraPort": 0,
+    "metadata": {
+      "dispatch_by_ip": true,
+      "parser_name": "h265Left",
+      "pcap_alias_ips": ["192.168.1.223", "192.168.58.61"],
+      "rtsp_url": "rtsp://192.168.58.222/live.sdp",
+      "stream_name": "USV02-左固连相机"
+    }
+  },
+  {
+    "name": "h264Left",
+    "type": "Camera_H264",
+    "ip": "192.168.1.170",
+    "port": 20080,
+    "extraPort": 0,
+    "metadata": {
+      "parser_name": "h264Left"
+    }
+  },
+  {
+    "name": "h264Right",
+    "type": "Camera_H264",
+    "ip": "192.168.1.170",
+    "port": 20082,
+    "extraPort": 0,
+    "metadata": {
+      "parser_name": "h264Right"
+    }
+  }
+]

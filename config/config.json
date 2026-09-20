@@ -1,0 +1,57 @@
+{
+  "maps_dir": "maps",
+  "devices_file": "devices.json",
+  "calibration_file": "calibration.json",
+  "pcap_playback": {
+    "default_speed": 1.0
+  },
+  "compute_node_scheduler": {
+    "stable_berth_timestamps_to_stop_bridge": 10,
+    "missing_berth_timestamps_to_start_bridge": 10
+  },
+  "network": {
+    "receive_mode": "socket",
+    "local_ips": {
+      "lidar": "192.168.1.177",
+      "video": "192.168.58.177",
+      "navigation": "101.1.101.177"
+    }
+  },
+  "slam": {
+    "voxel_leaf_size": 0.5,
+    "max_gnss_sync_sec": 0.25,
+    "offline_tile_map": {
+      "enabled": true,
+      "tile_size_m": 50.0,
+      "lod_voxel_sizes_m": [1.0, 0.3, 0.05],
+      "prefetch_ring_tiles": 1,
+      "unload_ring_tiles": 2,
+      "ram_budget_mb": 512,
+      "gpu_point_budget": 1500000,
+      "view_update_delay_ms": 120,
+      "max_concurrent_loads": 2
+    },
+    "water_filter": {
+      "enabled": true,
+      "clearance_m": -0.15,
+      "plane_distance_m": 0.15,
+      "max_tilt_deg": 20.0,
+      "min_inliers": 80,
+      "max_sample_points": 12000,
+      "ransac_iterations": 160,
+      "near_surface_band_m": 1.0,
+      "outlier_radius_m": 0.6,
+      "outlier_min_neighbors": 0,
+      "max_fallback_frames": 15
+    }
+  },
+  "system_log": {
+    "enabled": true,
+    "dir": "logs",
+    "retain_days": 14,
+    "min_free_gb": 5.0,
+    "cleanup_on_startup": true,
+    "sensor_fps_interval_sec": 5,
+    "disk_check_interval_sec": 600
+  }
+}

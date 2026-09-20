@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icon/boot.png</file>
+        <file>icon/load.png</file>
+        <file>icon/online.png</file>
+        <file>icon/pathplan.png</file>
+        <file>icon/stop.png</file>
+        <file>icon/topview.png</file>
+        <file>icon/DeviceRegister.png</file>
+        <file>icon/deviceQuery.png</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,38 @@
+# 本地构建目录和生成产物
+build/
+build-*/
+artifacts/
+*.exe
+*.dll
+*.a
+*.o
+*.obj
+*.pdb
+
+# 外部依赖和第三方预编译库
+lib/
+external/
+Eigen3/
+eigen-3.4.1/
+opencv2/
+
+# 本地 IDE、临时目录和备份
+.qtcreator/
+.superpowers/
+.codex*
+.docx_*/
+backups/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 本地数据和地图文件
+*.pcap
+*.pcapng
+*.pcd
+*.slammap
+
+# Qt Creator 用户配置
+CMakeLists.txt.user*
+
