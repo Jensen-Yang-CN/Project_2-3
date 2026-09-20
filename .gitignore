@@ -21,6 +21,7 @@ opencv2/
 .superpowers/
 .codex*
 .docx_*/
+docx_render_qa*/
 backups/
 
 # Python 缓存
@@ -35,4 +36,3 @@ __pycache__/
 
 # Qt Creator 用户配置
 CMakeLists.txt.user*
-
