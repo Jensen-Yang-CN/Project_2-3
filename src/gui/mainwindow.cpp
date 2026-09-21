@@ -1004,7 +1004,7 @@ void MainWindow::prepareHistoricalMapForExport(const QString &mapPath)
             tileOptions.lods.append({level, voxelSize});
     }
     if (tileOptions.lods.isEmpty())
-        tileOptions.lods = {{0, 1.0}, {1, 0.3}, {2, 0.05}};
+        tileOptions.lods = {{0, 1.0}, {1, 0.3}, {2, 0.1}};
 
     const QString cacheRoot = QDir(slam_map_io::defaultMapsDirectory())
                                   .filePath(QStringLiteral("tiled_cache"));

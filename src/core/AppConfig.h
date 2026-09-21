@@ -24,7 +24,7 @@ struct WaterFilterAppConfig {
 struct SlamTileMapAppConfig {
     bool enabled = true;
     double tile_size_m = 50.0;
-    QVector<double> lod_voxel_sizes_m{1.0, 0.3, 0.05};
+    QVector<double> lod_voxel_sizes_m{1.0, 0.3, 0.1};
     int prefetch_ring_tiles = 1;
     int unload_ring_tiles = 2;
     int ram_budget_mb = 512;

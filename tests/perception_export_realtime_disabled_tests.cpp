@@ -45,9 +45,9 @@ int main()
           "historical overlap map export must remain available", failures);
     check(source.find("sendBerth") != std::string::npos,
           "berth export path must remain available", failures);
-    check(source.find("kHistoricalMapResolutionM = 0.05")
+    check(source.find("kHistoricalMapResolutionM = 0.1")
               != std::string::npos,
-          "historical map packets should use the denser 0.05 m grid", failures);
+          "historical map packets should use the configured 0.1 m grid", failures);
     check(source.find("historyState.origin_gnss = historyGnss")
               != std::string::npos,
           "historical berths must use the same history ENU anchor as 0xFC", failures);

@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <set>
 
 namespace history_map_export {
 
@@ -28,6 +30,71 @@ bool finitePoint(const M_PointXYZI &p)
     return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
 }
 
+constexpr double kBerthRoiPaddingM = 2.0;
+
+bool boundsIntersect(const slam_tile::Bounds2d &lhs,
+                     const slam_tile::Bounds2d &rhs)
+{
+    return lhs.valid() && rhs.valid()
+        && lhs.min_x <= rhs.max_x && lhs.max_x >= rhs.min_x
+        && lhs.min_y <= rhs.max_y && lhs.max_y >= rhs.min_y;
+}
+
+slam_tile::Bounds2d tileBounds(const slam_tile::Manifest &manifest,
+                               const slam_tile::TileId &id)
+{
+    const double minX = manifest.grid_origin_x
+        + static_cast<double>(id.x) * manifest.tile_size_m;
+    const double minY = manifest.grid_origin_y
+        + static_cast<double>(id.y) * manifest.tile_size_m;
+    return {minX, minY, minX + manifest.tile_size_m,
+            minY + manifest.tile_size_m};
+}
+
+bool berthRoi(const usv::SlamMapBerth &berth,
+              slam_tile::Bounds2d &bounds)
+{
+    if (!std::isfinite(berth.x) || !std::isfinite(berth.y)
+        || !std::isfinite(berth.width) || !std::isfinite(berth.length)
+        || berth.width <= 0.0 || berth.length <= 0.0) {
+        return false;
+    }
+
+    constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+    const double halfLength = 0.5 * std::abs(berth.length);
+    const double halfWidth = 0.5 * std::abs(berth.width);
+    const double angle = berth.angle_deg * kDegToRad;
+    const double c = std::abs(std::cos(angle));
+    const double s = std::abs(std::sin(angle));
+    const double halfExtentX = c * halfLength + s * halfWidth
+        + kBerthRoiPaddingM;
+    const double halfExtentY = s * halfLength + c * halfWidth
+        + kBerthRoiPaddingM;
+    bounds = {berth.x - halfExtentX, berth.y - halfExtentY,
+              berth.x + halfExtentX, berth.y + halfExtentY};
+    return bounds.valid();
+}
+
+bool overlapsAnyBerth(const slam_tile::Manifest &manifest,
+                       const slam_tile::TileId &id)
+{
+    const slam_tile::Bounds2d bounds = tileBounds(manifest, id);
+    for (const usv::SlamMapBerth &berth : manifest.berths) {
+        slam_tile::Bounds2d roi;
+        if (berthRoi(berth, roi) && boundsIntersect(bounds, roi))
+            return true;
+    }
+    return false;
+}
+
+const slam_tile::TileMeta *findTileForCoordinate(
+    const std::map<std::pair<int, int>, slam_tile::TileMeta> &tiles,
+    int x, int y)
+{
+    const auto found = tiles.find({x, y});
+    return found == tiles.end() ? nullptr : &found->second;
+}
+
 } // namespace
 
 bool HistoricalMapExportSource::openManifest(const QString &manifestPath,
@@ -41,32 +108,84 @@ bool HistoricalMapExportSource::openManifest(const QString &manifestPath,
     if (candidate.lods.isEmpty() || candidate.tiles.isEmpty())
         return fail(error, QStringLiteral("历史分块地图没有可投递的 LOD/Tile"));
 
-    const slam_tile::LodLevel *finest = &candidate.lods.first();
-    for (const slam_tile::LodLevel &lod : candidate.lods) {
-        if (lod.voxel_size_m < finest->voxel_size_m)
-            finest = &lod;
-    }
-    const int finestLod = finest->level;
+    QVector<slam_tile::LodLevel> lods = candidate.lods;
+    std::sort(lods.begin(), lods.end(),
+              [](const slam_tile::LodLevel &a,
+                 const slam_tile::LodLevel &b) {
+                  if (a.voxel_size_m != b.voxel_size_m)
+                      return a.voxel_size_m < b.voxel_size_m;
+                  return a.level < b.level;
+              });
+    const slam_tile::LodLevel berthLod = lods.first();
+    const slam_tile::LodLevel backgroundLod = lods.size() > 1
+        ? lods.at(1)
+        : berthLod;
 
-    QVector<slam_tile::TileMeta> finestTiles;
+    std::map<std::pair<int, int>, slam_tile::TileMeta> berthTiles;
+    std::map<std::pair<int, int>, slam_tile::TileMeta> backgroundTiles;
     for (const slam_tile::TileMeta &meta : candidate.tiles) {
-        if (meta.id.lod == finestLod)
-            finestTiles.append(meta);
+        if (meta.id.lod == berthLod.level)
+            berthTiles[{meta.id.x, meta.id.y}] = meta;
+        if (meta.id.lod == backgroundLod.level)
+            backgroundTiles[{meta.id.x, meta.id.y}] = meta;
     }
-    if (finestTiles.isEmpty())
-        return fail(error, QStringLiteral("历史分块地图最细 LOD 没有 Tile"));
-    std::sort(finestTiles.begin(), finestTiles.end(),
+
+    std::set<std::pair<int, int>> coordinates;
+    for (const auto &entry : berthTiles)
+        coordinates.insert(entry.first);
+    for (const auto &entry : backgroundTiles)
+        coordinates.insert(entry.first);
+
+    QVector<slam_tile::TileMeta> selectedTiles;
+    int berthTileCount = 0;
+    int backgroundTileCount = 0;
+    for (const auto &coordinate : coordinates) {
+        const bool berthRegion = overlapsAnyBerth(
+            candidate,
+            {coordinate.first, coordinate.second, berthLod.level});
+        const slam_tile::TileMeta *selected = berthRegion
+            ? findTileForCoordinate(berthTiles,
+                                    coordinate.first, coordinate.second)
+            : findTileForCoordinate(backgroundTiles,
+                                    coordinate.first, coordinate.second);
+        if (!selected) {
+            selected = berthRegion
+                ? findTileForCoordinate(backgroundTiles,
+                                        coordinate.first, coordinate.second)
+                : findTileForCoordinate(berthTiles,
+                                        coordinate.first, coordinate.second);
+        }
+        if (!selected)
+            continue;
+        selectedTiles.append(*selected);
+        if (selected->id.lod == berthLod.level)
+            ++berthTileCount;
+        else if (selected->id.lod == backgroundLod.level)
+            ++backgroundTileCount;
+    }
+    if (selectedTiles.isEmpty())
+        return fail(error, QStringLiteral("历史分块地图没有可投递的 Tile"));
+    std::sort(selectedTiles.begin(), selectedTiles.end(),
               [](const slam_tile::TileMeta &a,
                  const slam_tile::TileMeta &b) {
-                  return a.id < b.id;
+                  if (a.id.x != b.id.x)
+                      return a.id.x < b.id.x;
+                  if (a.id.y != b.id.y)
+                      return a.id.y < b.id.y;
+                  return a.id.lod < b.id.lod;
               });
 
     close();
     manifest_path_ = QFileInfo(manifestPath).absoluteFilePath();
     manifest_dir_ = QFileInfo(manifest_path_).absolutePath();
     manifest_ = std::move(candidate);
-    finest_lod_ = finestLod;
-    finest_tiles_ = std::move(finestTiles);
+    berth_lod_ = berthLod.level;
+    background_lod_ = backgroundLod.level;
+    berth_lod_voxel_size_m_ = berthLod.voxel_size_m;
+    background_lod_voxel_size_m_ = backgroundLod.voxel_size_m;
+    berth_tile_count_ = berthTileCount;
+    background_tile_count_ = backgroundTileCount;
+    selected_tiles_ = std::move(selectedTiles);
     full_map_cursor_ = 0;
     open_ = true;
     return true;
@@ -78,8 +197,13 @@ void HistoricalMapExportSource::close()
     manifest_path_.clear();
     manifest_dir_.clear();
     manifest_ = {};
-    finest_lod_ = -1;
-    finest_tiles_.clear();
+    berth_lod_ = -1;
+    background_lod_ = -1;
+    berth_lod_voxel_size_m_ = 0.0;
+    background_lod_voxel_size_m_ = 0.0;
+    berth_tile_count_ = 0;
+    background_tile_count_ = 0;
+    selected_tiles_.clear();
     full_map_cursor_ = 0;
     tile_cache_.clear();
     cache_lru_.clear();
@@ -88,7 +212,7 @@ void HistoricalMapExportSource::close()
 bool HistoricalMapExportSource::hasNextFullMapTile() const noexcept
 {
     return open_ && full_map_cursor_ >= 0
-        && full_map_cursor_ < finest_tiles_.size();
+        && full_map_cursor_ < selected_tiles_.size();
 }
 
 bool HistoricalMapExportSource::takeNextFullMapTile(
@@ -98,7 +222,7 @@ bool HistoricalMapExportSource::takeNextFullMapTile(
     if (!hasNextFullMapTile())
         return fail(error, QStringLiteral("历史整图 Tile 已读取完毕"));
 
-    const slam_tile::TileMeta meta = finest_tiles_.at(full_map_cursor_++);
+    const slam_tile::TileMeta meta = selected_tiles_.at(full_map_cursor_++);
     slam_tile::TileDataPtr tile;
     if (!loadTile(meta, tile, error))
         return false;
@@ -168,25 +292,21 @@ bool HistoricalMapExportSource::makeOverlapVirtualKeyframe(
         bounds.max_y += minimumSpan * 0.5;
     }
 
-    const QSet<slam_tile::TileId> wanted = slam_tile::tilesForBounds(
-        bounds, manifest_.grid_origin_x, manifest_.grid_origin_y,
-        manifest_.tile_size_m, finest_lod_);
-
     virtualKeyframe.keyframe_id = liveKeyframe.keyframe_id;
     virtualKeyframe.timestamp = liveKeyframe.timestamp;
     virtualKeyframe.pose = Eigen::Isometry3d::Identity();
     if (stats) {
-        stats->candidate_tiles = wanted.size();
         stats->bounds = bounds;
     }
 
-    for (const slam_tile::TileId &id : wanted) {
-        const slam_tile::TileMeta *meta = findFinestTile(id);
-        if (!meta)
+    for (const slam_tile::TileMeta &meta : selected_tiles_) {
+        if (!boundsIntersect(tileBounds(manifest_, meta.id), bounds))
             continue;
+        if (stats)
+            ++stats->candidate_tiles;
         slam_tile::TileDataPtr tile;
         QString tileError;
-        if (!loadTile(*meta, tile, &tileError)) {
+        if (!loadTile(meta, tile, &tileError)) {
             if (error && error->isEmpty())
                 *error = tileError;
             continue;
@@ -234,16 +354,6 @@ bool HistoricalMapExportSource::loadTile(const slam_tile::TileMeta &meta,
         tile_cache_.remove(evicted);
     }
     return true;
-}
-
-const slam_tile::TileMeta *HistoricalMapExportSource::findFinestTile(
-    const slam_tile::TileId &id) const
-{
-    for (const slam_tile::TileMeta &meta : finest_tiles_) {
-        if (meta.id == id)
-            return &meta;
-    }
-    return nullptr;
 }
 
 void HistoricalMapExportSource::touchCache(const slam_tile::TileId &id)

@@ -23,7 +23,7 @@
     "offline_tile_map": {
       "enabled": true,
       "tile_size_m": 50.0,
-      "lod_voxel_sizes_m": [1.0, 0.3, 0.05],
+      "lod_voxel_sizes_m": [1.0, 0.3, 0.1],
       "prefetch_ring_tiles": 1,
       "unload_ring_tiles": 2,
       "ram_budget_mb": 512,

@@ -70,7 +70,8 @@ bool writeTile(const QString &root, slam_tile::Manifest &manifest,
     return true;
 }
 
-QString createFixture(QTemporaryDir &dir, QString *error)
+QString createFixture(QTemporaryDir &dir, QString *error,
+                      bool includeBerth = true)
 {
     slam_tile::Manifest manifest;
     manifest.anchor.valid = true;
@@ -81,8 +82,8 @@ QString createFixture(QTemporaryDir &dir, QString *error)
     manifest.grid_origin_x = 0.0;
     manifest.grid_origin_y = 0.0;
     manifest.tile_size_m = 50.0;
-    manifest.bounds = {0.0, 0.0, 0.0, 50.0, 50.0, 3.0};
-    manifest.lods = {{0, 1.0}, {1, 0.1}};
+    manifest.bounds = {0.0, 0.0, 0.0, 100.0, 50.0, 3.0};
+    manifest.lods = {{0, 0.3}, {1, 0.1}};
     manifest.sources = {{QStringLiteral("C:/fixtures/history.slammap"),
                          1024, 123456}};
     usv::SlamMapBerth berth;
@@ -98,12 +99,9 @@ QString createFixture(QTemporaryDir &dir, QString *error)
     berth.opening_edge = 2;
     berth.observation_count = 3;
     berth.confidence = 0.9;
-    manifest.berths.append(berth);
+    if (includeBerth)
+        manifest.berths.append(berth);
 
-    if (!writeTile(dir.path(), manifest, {0, 0, 0}, 1.0,
-                   {point(5.0f, 5.0f, 0.0f)}, error)) {
-        return {};
-    }
     if (!writeTile(dir.path(), manifest, {0, 0, 1}, 0.1,
                    {point(11.2f, 0.2f, 0.0f),
                     point(11.8f, 0.8f, 0.0f),
@@ -112,11 +110,15 @@ QString createFixture(QTemporaryDir &dir, QString *error)
                     point(20.0f, 20.0f, 0.0f)}, error)) {
         return {};
     }
+    if (!writeTile(dir.path(), manifest, {1, 0, 0}, 0.3,
+                   {point(55.0f, 5.0f, 0.0f)}, error)) {
+        return {};
+    }
     const QString path = dir.filePath(QStringLiteral("manifest.json"));
     return slam_tile::saveManifest(path, manifest, error) ? path : QString{};
 }
 
-void testOpenAndInitialStreamUsesFinestLod(int &failures)
+void testOpenAndInitialStreamUsesBerthAndBackgroundLods(int &failures)
 {
     QTemporaryDir dir;
     QString error;
@@ -133,13 +135,29 @@ void testOpenAndInitialStreamUsesFinestLod(int &failures)
               && std::abs(source.berths().front().x - 12.0) < 1e-9,
           "historical manifest should expose persisted berth records",
           failures);
-    check(source.finestLod() == 1 && source.fullMapTileCount() == 1,
-          "only the finest 0.1 m LOD should be selected", failures);
-    std::vector<M_PointXYZI> points;
-    check(source.hasNextFullMapTile()
-              && source.takeNextFullMapTile(points, &error)
-              && points.size() == 5,
-          "initial stream should read the finest tile", failures);
+    check(source.finestLod() == 1 && source.backgroundLod() == 0,
+          "berth and background LODs should be selected", failures);
+    check(source.berthTileCount() == 1
+              && source.backgroundTileCount() == 1
+              && source.fullMapTileCount() == 2,
+          "one berth tile and one background tile should be streamed",
+          failures);
+    std::size_t totalPoints = 0;
+    bool sawBerthPoints = false;
+    bool sawBackgroundPoints = false;
+    while (source.hasNextFullMapTile()) {
+        std::vector<M_PointXYZI> points;
+        check(source.takeNextFullMapTile(points, &error),
+              "initial stream should read every selected tile", failures);
+        totalPoints += points.size();
+        for (const M_PointXYZI &p : points) {
+            sawBerthPoints = sawBerthPoints || p.x < 20.0f;
+            sawBackgroundPoints = sawBackgroundPoints || p.x > 50.0f;
+        }
+    }
+    check(totalPoints == 6 && sawBerthPoints && sawBackgroundPoints,
+          "initial stream should contain berth and background points",
+          failures);
     check(!source.hasNextFullMapTile(),
           "initial tile cursor should become exhausted", failures);
 }
@@ -184,6 +202,22 @@ void testEveryKeyframeBuildsHistoryEnuOverlap(int &failures)
           failures);
 }
 
+void testMapsWithoutBerthsUseBackgroundLod(int &failures)
+{
+    QTemporaryDir dir;
+    QString error;
+    history_map_export::HistoricalMapExportSource source;
+    check(source.openManifest(createFixture(dir, &error, false), &error),
+          "a historical map without berths should still open", failures);
+    check(source.berths().isEmpty()
+              && source.backgroundLod() == 0
+              && source.berthTileCount() == 1
+              && source.backgroundTileCount() == 1
+              && source.fullMapTileCount() == 2,
+          "maps without berth records should prefer the background LOD",
+          failures);
+}
+
 void testInvalidLiveAnchorDoesNotCreateVirtualFrame(int &failures)
 {
     QTemporaryDir dir;
@@ -205,8 +239,9 @@ int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     int failures = 0;
-    testOpenAndInitialStreamUsesFinestLod(failures);
+    testOpenAndInitialStreamUsesBerthAndBackgroundLods(failures);
     testEveryKeyframeBuildsHistoryEnuOverlap(failures);
+    testMapsWithoutBerthsUseBackgroundLod(failures);
     testInvalidLiveAnchorDoesNotCreateVirtualFrame(failures);
     if (failures == 0)
         std::cout << "historical_map_export_tests: PASS\n";

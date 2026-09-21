@@ -33,7 +33,7 @@ constexpr double kDegToRad = M_PI / 180.0;
 // 实时回放时同时投递当前 SLAM 关键帧；历史地图仍按原有历史队列投递。
 // 泊位 0xFB 的几何与缓存逻辑独立于此开关。
 constexpr bool kEnableRealtimeMapExport = true;
-constexpr double kHistoricalMapResolutionM = 0.05;
+constexpr double kHistoricalMapResolutionM = 0.1;
 // 实时泊位连续帧的检测抖动通常是米级；35 m 会把相邻泊位错误合并。
 constexpr double kRealtimeBerthCacheMatchM = 6.0;
 
@@ -257,6 +257,12 @@ bool PerceptionExportNode::loadHistoricalMap(const QString &manifestPath,
         return false;
 
     historical_map_source_ = std::move(candidate);
+    emit logMessage(
+        QStringLiteral("[历史地图投递] LOD选择：泊位Tile=%1（%2 m），背景Tile=%3（%4 m）")
+            .arg(historical_map_source_.berthTileCount())
+            .arg(historical_map_source_.berthVoxelSize(), 0, 'f', 2)
+            .arg(historical_map_source_.backgroundTileCount())
+            .arg(historical_map_source_.backgroundVoxelSize(), 0, 'f', 2));
     historical_map_source_.resetFullMapCursor();
     historical_berths_sent_ = false;
     last_historical_berths_send_ms_ = 0;

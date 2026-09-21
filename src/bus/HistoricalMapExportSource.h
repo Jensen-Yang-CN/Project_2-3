@@ -43,8 +43,19 @@ public:
     {
         return manifest_.berths;
     }
-    int finestLod() const noexcept { return finest_lod_; }
-    int fullMapTileCount() const noexcept { return finest_tiles_.size(); }
+    int finestLod() const noexcept { return berth_lod_; }
+    int backgroundLod() const noexcept { return background_lod_; }
+    double berthVoxelSize() const noexcept { return berth_lod_voxel_size_m_; }
+    double backgroundVoxelSize() const noexcept
+    {
+        return background_lod_voxel_size_m_;
+    }
+    int berthTileCount() const noexcept { return berth_tile_count_; }
+    int backgroundTileCount() const noexcept
+    {
+        return background_tile_count_;
+    }
+    int fullMapTileCount() const noexcept { return selected_tiles_.size(); }
 
     void resetFullMapCursor() noexcept { full_map_cursor_ = 0; }
     bool hasNextFullMapTile() const noexcept;
@@ -63,16 +74,19 @@ private:
     bool loadTile(const slam_tile::TileMeta &meta,
                   slam_tile::TileDataPtr &tile,
                   QString *error);
-    const slam_tile::TileMeta *findFinestTile(
-        const slam_tile::TileId &id) const;
     void touchCache(const slam_tile::TileId &id);
 
     bool open_ = false;
     QString manifest_path_;
     QString manifest_dir_;
     slam_tile::Manifest manifest_;
-    int finest_lod_ = -1;
-    QVector<slam_tile::TileMeta> finest_tiles_;
+    int berth_lod_ = -1;
+    int background_lod_ = -1;
+    double berth_lod_voxel_size_m_ = 0.0;
+    double background_lod_voxel_size_m_ = 0.0;
+    int berth_tile_count_ = 0;
+    int background_tile_count_ = 0;
+    QVector<slam_tile::TileMeta> selected_tiles_;
     int full_map_cursor_ = 0;
 
     QHash<slam_tile::TileId, slam_tile::TileDataPtr> tile_cache_;
