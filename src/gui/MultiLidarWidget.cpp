@@ -121,8 +121,10 @@ void MultiLidarWidget::clearSlamMap()
     m_slamRealtimeMapCloud.clear();
     m_slamLiveScan.clear();
     m_slamKeyframes.clear();
+    m_slamRealtimeKeyframes.clear();
     m_slamBerthOverlay.resetAll();
     m_slamMapBerthStore.clear();
+    m_slamRealtimeBerthStore.clear();
     m_slamOccupancyWire.clear();
     m_slamMapIsOccupancy = false;
     m_hasHistoricalSlamMap = false;
@@ -149,8 +151,12 @@ bool MultiLidarWidget::saveCurrentSlamMap(const QString &filePath, QString *erro
 {
     slam_map_io::MapArchive archive;
     archive.anchor = m_slamGeoAnchor;
-    archive.keyframes = m_slamKeyframes;
-    archive.berths = m_slamMapBerthStore.records();
+    const bool hasRealtimeSession = !m_slamRealtimeKeyframes.empty();
+    archive.keyframes = hasRealtimeSession
+        ? m_slamRealtimeKeyframes : m_slamKeyframes;
+    archive.berths = hasRealtimeSession
+        ? m_slamRealtimeBerthStore.records()
+        : m_slamMapBerthStore.records();
     if (archive.keyframes.empty()) {
         if (errorMsg)
             *errorMsg = QStringLiteral("当前没有可保存的 SLAM 关键帧");
@@ -176,16 +182,20 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
         loaded = slam_map_io::rebuildWorldCloud(
             archive.keyframes, kMaxSlamMapPoints, kSlamMapIntensity);
         m_slamKeyframes = std::move(archive.keyframes);
+        m_slamRealtimeKeyframes.clear();
         m_slamGeoAnchor = archive.anchor;
         m_slamMapBerthStore.setRecords(archive.berths);
+        m_slamRealtimeBerthStore.clear();
         m_hasHistoricalSlamMap = true;
         m_historicalMapUsesEnu = corrected.diagnostic.applied;
     } else {
         if (!slam_map_io::load(filePath, loaded, errorMsg))
             return false;
         m_slamKeyframes.clear();
+        m_slamRealtimeKeyframes.clear();
         m_slamGeoAnchor = {};
         m_slamMapBerthStore.clear();
+        m_slamRealtimeBerthStore.clear();
         m_hasHistoricalSlamMap = true;
         m_historicalMapUsesEnu = false;
     }
@@ -285,6 +295,15 @@ void MultiLidarWidget::appendSlamKeyframe(const usv::SlamKeyframe &keyframe)
                 keyframe, m_realtimeMapToEnu);
     }
 
+    usv::SlamKeyframe savedKeyframe = displayKeyframe;
+    if (m_hasHistoricalSlamMap && m_historicalMapUsesEnu
+        && m_hasRealtimeMapAlignment) {
+        // This session keyframe is already in the display/ENU frame.  Clear
+        // the raw navigation reference so loading the saved map does not
+        // apply the geographic correction for a second time.
+        savedKeyframe.geo_reference = usv::SlamGeoPoseReference{};
+    }
+    m_slamRealtimeKeyframes.push_back(std::move(savedKeyframe));
     m_slamKeyframes.push_back(displayKeyframe);
     mergeKeyframeIntoMap(displayKeyframe);
     update();
@@ -314,6 +333,7 @@ void MultiLidarWidget::persistSynchronizedBerthResult()
     if (!worldResult || worldResult->timestamp <= m_lastPersistedBerthTimestamp)
         return;
     m_slamMapBerthStore.observe(*worldResult);
+    m_slamRealtimeBerthStore.observe(*worldResult);
     m_lastPersistedBerthTimestamp = worldResult->timestamp;
 }
 

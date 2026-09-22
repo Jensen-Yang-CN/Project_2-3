@@ -27,25 +27,15 @@ inline bool computeMapToEnu(const usv::SlamKeyframe &keyframe,
     return true;
 }
 
-inline void transformPointCloud(std::vector<M_PointXYZI> &cloud,
-                                const Eigen::Isometry3d &mapToEnu)
-{
-    for (M_PointXYZI &point : cloud) {
-        const Eigen::Vector3d transformed =
-            mapToEnu * Eigen::Vector3d(point.x, point.y, point.z);
-        point.x = static_cast<float>(transformed.x());
-        point.y = static_cast<float>(transformed.y());
-        point.z = static_cast<float>(transformed.z());
-    }
-}
-
 inline usv::SlamKeyframe transformKeyframe(
     const usv::SlamKeyframe &keyframe,
     const Eigen::Isometry3d &mapToEnu)
 {
     usv::SlamKeyframe aligned = keyframe;
+    // The cloud is expressed in the lidar frame.  The map merge path applies
+    // the returned pose to each point, so transforming the cloud here would
+    // apply the same coordinate change twice.
     aligned.pose = mapToEnu * keyframe.pose;
-    transformPointCloud(aligned.cloud, mapToEnu);
     return aligned;
 }
 

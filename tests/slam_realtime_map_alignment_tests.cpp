@@ -33,9 +33,11 @@ int main()
     assert(closeTo(aligned.pose.translation().x(), 11.0));
     assert(closeTo(aligned.pose.translation().y(), 22.0));
     assert(closeTo(aligned.pose.translation().z(), 33.0));
-    assert(closeTo(aligned.cloud.front().x, 11.0));
-    assert(closeTo(aligned.cloud.front().y, 22.0));
-    assert(closeTo(aligned.cloud.front().z, 33.0));
+    // Keyframe clouds stay in the lidar frame.  mergeKeyframeIntoMap applies
+    // the aligned pose exactly once when converting them to world points.
+    assert(closeTo(aligned.cloud.front().x, 1.0));
+    assert(closeTo(aligned.cloud.front().y, 2.0));
+    assert(closeTo(aligned.cloud.front().z, 3.0));
 
     usv::SlamKeyframe withoutReference;
     assert(!slam_realtime_alignment::computeMapToEnu(

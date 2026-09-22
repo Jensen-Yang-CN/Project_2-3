@@ -178,6 +178,8 @@ private:
     QVector<M_PointXYZI> m_slamRealtimeMapCloud;
     QVector<M_PointXYZI> m_slamLiveScan;
     std::vector<usv::SlamKeyframe> m_slamKeyframes;
+    // 当前回放会话的关键帧，保存地图时避免带入已加载的历史关键帧。
+    std::vector<usv::SlamKeyframe> m_slamRealtimeKeyframes;
     QVector<M_PointXYZI> m_slamOccupancyWire;
     bool m_slamMapIsOccupancy = false;
     bool m_hasHistoricalSlamMap = false;
@@ -190,6 +192,7 @@ private:
     int m_currentSlamTileLod = 0;
     int m_slamTileGpuPointBudget = 1500000;
     usv::SlamGeoAnchor m_slamGeoAnchor;
+    SlamMapBerthStore m_slamRealtimeBerthStore;
     Eigen::Isometry3d m_slamPose = Eigen::Isometry3d::Identity();
     bool m_hasSlamPose = false;
     // 加载历史地图后，实时 SLAM 坐标通过首个有效地理参考统一到 ENU。
