@@ -7,8 +7,7 @@
 namespace slam_realtime_alignment {
 
 /**
- * Build the fixed transform from the SLAM map frame to the ENU frame used by
- * a keyframe's navigation reference.
+ * 根据关键帧的导航参考位姿，计算 SLAM map 坐标系到 ENU 坐标系的固定变换。
  */
 inline bool computeMapToEnu(const usv::SlamKeyframe &keyframe,
                             Eigen::Isometry3d &mapToEnu)
@@ -32,9 +31,8 @@ inline usv::SlamKeyframe transformKeyframe(
     const Eigen::Isometry3d &mapToEnu)
 {
     usv::SlamKeyframe aligned = keyframe;
-    // The cloud is expressed in the lidar frame.  The map merge path applies
-    // the returned pose to each point, so transforming the cloud here would
-    // apply the same coordinate change twice.
+    // 关键帧点云仍然使用雷达坐标系。地图合并流程会用返回的 pose 统一变换
+    // 每个点，因此这里不能再次变换 cloud，否则会发生重复变换导致地图偏移。
     aligned.pose = mapToEnu * keyframe.pose;
     return aligned;
 }
