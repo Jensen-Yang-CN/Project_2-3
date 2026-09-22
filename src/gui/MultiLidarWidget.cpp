@@ -1,6 +1,7 @@
 #include "MultiLidarWidget.h"
 #include "SlamMapBinaryIO.h"
 #include "SlamMapGeoCorrector.h"
+#include "SlamRealtimeMapAlignment.h"
 #include "AppConfig.h"
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -125,9 +126,12 @@ void MultiLidarWidget::clearSlamMap()
     m_slamOccupancyWire.clear();
     m_slamMapIsOccupancy = false;
     m_hasHistoricalSlamMap = false;
+    m_historicalMapUsesEnu = false;
     m_slamPath.clear();
     m_hasSlamPose = false;
     m_slamPose = Eigen::Isometry3d::Identity();
+    m_realtimeMapToEnu = Eigen::Isometry3d::Identity();
+    m_hasRealtimeMapAlignment = false;
     m_slamX = 0.0f;
     m_slamY = 0.0f;
     m_slamYaw = 0.0f;
@@ -175,6 +179,7 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
         m_slamGeoAnchor = archive.anchor;
         m_slamMapBerthStore.setRecords(archive.berths);
         m_hasHistoricalSlamMap = true;
+        m_historicalMapUsesEnu = corrected.diagnostic.applied;
     } else {
         if (!slam_map_io::load(filePath, loaded, errorMsg))
             return false;
@@ -182,6 +187,7 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
         m_slamGeoAnchor = {};
         m_slamMapBerthStore.clear();
         m_hasHistoricalSlamMap = true;
+        m_historicalMapUsesEnu = false;
     }
 
     for (M_PointXYZI &point : loaded)
@@ -193,6 +199,8 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
     m_slamMapIsOccupancy = false;
     m_slamPath.clear();
     m_hasSlamPose = false;
+    m_realtimeMapToEnu = Eigen::Isometry3d::Identity();
+    m_hasRealtimeMapAlignment = false;
     update();
     return true;
 }
@@ -219,8 +227,14 @@ void MultiLidarWidget::updateSlamOdometry(const usv::SlamOdometryState &state)
     if (!state.pose_lidar.valid)
         return;
 
-    m_slamPose = state.pose_lidar.pose;
-    m_slamBerthOverlay.addSlamPose(state.timestamp, state.pose_lidar.pose);
+    Eigen::Isometry3d pose = state.pose_lidar.pose;
+    if (m_hasHistoricalSlamMap && m_historicalMapUsesEnu
+        && m_hasRealtimeMapAlignment)
+        pose = slam_realtime_alignment::transformPose(
+            state.pose_lidar.pose, m_realtimeMapToEnu);
+
+    m_slamPose = pose;
+    m_slamBerthOverlay.addSlamPose(state.timestamp, pose);
     persistSynchronizedBerthResult();
     m_hasSlamPose = true;
 
@@ -241,6 +255,16 @@ void MultiLidarWidget::updateSlamOdometry(const usv::SlamOdometryState &state)
 void MultiLidarWidget::updateSlamLiveScan(const QVector<M_PointXYZI> &worldCloud)
 {
     m_slamLiveScan = worldCloud;
+    if (m_hasHistoricalSlamMap && m_historicalMapUsesEnu
+        && m_hasRealtimeMapAlignment) {
+        for (M_PointXYZI &point : m_slamLiveScan) {
+            const Eigen::Vector3d transformed =
+                m_realtimeMapToEnu * Eigen::Vector3d(point.x, point.y, point.z);
+            point.x = static_cast<float>(transformed.x());
+            point.y = static_cast<float>(transformed.y());
+            point.z = static_cast<float>(transformed.z());
+        }
+    }
     for (M_PointXYZI &p : m_slamLiveScan)
         p.intensity = kSlamLiveScanIntensity;
     update();
@@ -251,9 +275,37 @@ void MultiLidarWidget::appendSlamKeyframe(const usv::SlamKeyframe &keyframe)
     // 启用 OctoMap 栅格显示后，关键帧点云不再累积进 SLAM 地图
     if (m_slamMapIsOccupancy)
         return;
-    m_slamKeyframes.push_back(keyframe);
-    mergeKeyframeIntoMap(keyframe);
+
+    usv::SlamKeyframe displayKeyframe = keyframe;
+    if (m_hasHistoricalSlamMap && m_historicalMapUsesEnu) {
+        if (!m_hasRealtimeMapAlignment)
+            captureRealtimeMapAlignment(keyframe);
+        if (m_hasRealtimeMapAlignment)
+            displayKeyframe = slam_realtime_alignment::transformKeyframe(
+                keyframe, m_realtimeMapToEnu);
+    }
+
+    m_slamKeyframes.push_back(displayKeyframe);
+    mergeKeyframeIntoMap(displayKeyframe);
     update();
+}
+
+bool MultiLidarWidget::captureRealtimeMapAlignment(
+    const usv::SlamKeyframe &keyframe)
+{
+    if (m_hasRealtimeMapAlignment)
+        return true;
+
+    Eigen::Isometry3d mapToEnu = Eigen::Isometry3d::Identity();
+    if (!slam_realtime_alignment::computeMapToEnu(keyframe, mapToEnu))
+        return false;
+
+    m_realtimeMapToEnu = mapToEnu;
+    m_hasRealtimeMapAlignment = true;
+    // 丢弃变换建立前可能积累的传感器系泊位轨迹，避免混合两个坐标系。
+    m_slamBerthOverlay.resetAll();
+    m_lastPersistedBerthTimestamp = -std::numeric_limits<double>::infinity();
+    return true;
 }
 
 void MultiLidarWidget::persistSynchronizedBerthResult()

@@ -110,6 +110,7 @@ private:
     void persistSynchronizedBerthResult();
     usv::BerthMeasureResult savedBerthResultForPaint() const;
     void mergeKeyframeIntoMap(const usv::SlamKeyframe &keyframe);
+    bool captureRealtimeMapAlignment(const usv::SlamKeyframe &keyframe);
     void rebuildOccupancyWireframe();
     void downsampleCloudIfNeeded(QVector<M_PointXYZI> &cloud);
     void renderSlamMap(const QMatrix4x4 &viewMatrix);
@@ -180,6 +181,7 @@ private:
     QVector<M_PointXYZI> m_slamOccupancyWire;
     bool m_slamMapIsOccupancy = false;
     bool m_hasHistoricalSlamMap = false;
+    bool m_historicalMapUsesEnu = false;
     float m_occupancyResolution = 0.5f;
     static constexpr int kMaxOccupancyWireCubes = 100000;
     QHash<slam_tile::TileId, std::shared_ptr<SlamTileGpu>> m_slamTiles;
@@ -190,6 +192,9 @@ private:
     usv::SlamGeoAnchor m_slamGeoAnchor;
     Eigen::Isometry3d m_slamPose = Eigen::Isometry3d::Identity();
     bool m_hasSlamPose = false;
+    // 加载历史地图后，实时 SLAM 坐标通过首个有效地理参考统一到 ENU。
+    Eigen::Isometry3d m_realtimeMapToEnu = Eigen::Isometry3d::Identity();
+    bool m_hasRealtimeMapAlignment = false;
     static constexpr int kMaxSlamMapPoints = 1500000;
     static constexpr unsigned char kSlamMapIntensity = 90;
     static constexpr unsigned char kSlamLiveScanIntensity = 90;

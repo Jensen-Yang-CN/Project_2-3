@@ -972,6 +972,28 @@ if(BUILD_TESTING)
     )
     add_test(NAME slam_geo_anchor COMMAND slam_geo_anchor_tests)
 
+    if(SLAM_ENABLED)
+        add_executable(slam_realtime_map_alignment_tests
+            tests/slam_realtime_map_alignment_tests.cpp
+            src/slam/SlamRealtimeMapAlignment.h
+            common/slam_types.h
+            common/pointxyz.h
+        )
+        target_include_directories(slam_realtime_map_alignment_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/common
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/slam
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/bridge
+            ${EIGEN3_INCLUDE_DIR}
+        )
+        target_link_libraries(slam_realtime_map_alignment_tests PRIVATE
+            Qt5::Core
+            Eigen3::Eigen
+        )
+        add_test(NAME slam_realtime_map_alignment
+            COMMAND slam_realtime_map_alignment_tests)
+    endif()
+
     add_executable(berth_recall_tests
         tests/berth_recall_tests.cpp
         src/bus/BerthPoseBuffer.h
