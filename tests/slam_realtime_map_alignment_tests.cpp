@@ -15,6 +15,19 @@ bool closeTo(double actual, double expected)
 
 int main()
 {
+    const Eigen::Isometry3d canonical =
+        slam_realtime_alignment::canonicalMapToEnu();
+    assert(closeTo(canonical.matrix()(0, 0), 0.343116876975));
+    assert(closeTo(canonical.matrix()(0, 3), 8.062556171207));
+    assert(closeTo(canonical.matrix()(1, 0), -0.939256930598));
+    assert(closeTo(canonical.matrix()(1, 3), -1.210357550253));
+    assert(closeTo(canonical.matrix()(2, 2), 0.999683476521));
+    const Eigen::Vector3d canonicalPoint =
+        canonical * Eigen::Vector3d(1.0, 2.0, 3.0);
+    assert(closeTo(canonicalPoint.x(), 10.359047291841));
+    assert(closeTo(canonicalPoint.y(), -1.461798573854));
+    assert(closeTo(canonicalPoint.z(), 1.395714451830));
+
     usv::SlamKeyframe keyframe;
     keyframe.pose.translation() = Eigen::Vector3d(1.0, 2.0, 3.0);
     keyframe.geo_reference.valid = true;

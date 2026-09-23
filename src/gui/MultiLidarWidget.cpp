@@ -170,15 +170,23 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
     QVector<M_PointXYZI> loaded;
     const bool isArchive = QFileInfo(filePath).suffix().compare(
         QStringLiteral("slammap"), Qt::CaseInsensitive) == 0;
+    const bool isCanonicalEnuMap = isArchive
+        && QFileInfo(filePath).fileName().compare(
+            QStringLiteral("Mergedclouds_enu_optimized.slammap"),
+            Qt::CaseInsensitive) == 0;
     if (isArchive) {
         slam_map_io::MapArchive archive;
         if (!slam_map_io::loadArchive(filePath, archive, errorMsg))
             return false;
-        // 历史地图投递在分块前会应用同一套逐关键帧 ENU 地理校正。
-        // 界面加载也必须先校正，才能让本地点云/泊位与接收端使用同一坐标。
-        const slam_map_geo_correct::Result corrected =
-            slam_map_geo_correct::correct(archive);
-        archive = corrected.archive;
+        // 普通历史地图沿用原有逐关键帧 ENU 地理校正；canonical 地图已经
+        // 是 ENU 坐标，直接读取，避免对离线点云再做一次变换。
+        bool geoCorrectionApplied = false;
+        if (!isCanonicalEnuMap) {
+            const slam_map_geo_correct::Result corrected =
+                slam_map_geo_correct::correct(archive);
+            archive = corrected.archive;
+            geoCorrectionApplied = corrected.diagnostic.applied;
+        }
         loaded = slam_map_io::rebuildWorldCloud(
             archive.keyframes, kMaxSlamMapPoints, kSlamMapIntensity);
         m_slamKeyframes = std::move(archive.keyframes);
@@ -187,7 +195,9 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
         m_slamMapBerthStore.setRecords(archive.berths);
         m_slamRealtimeBerthStore.clear();
         m_hasHistoricalSlamMap = true;
-        m_historicalMapUsesEnu = corrected.diagnostic.applied;
+        // canonical 离线地图本身已经是 ENU 坐标，不能依赖关键帧中不存在的
+        // GNSS 参考来推导变换；实时数据使用 georeference(1).json 中的固定矩阵。
+        m_historicalMapUsesEnu = geoCorrectionApplied || isCanonicalEnuMap;
     } else {
         if (!slam_map_io::load(filePath, loaded, errorMsg))
             return false;
@@ -211,6 +221,13 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
     m_hasSlamPose = false;
     m_realtimeMapToEnu = Eigen::Isometry3d::Identity();
     m_hasRealtimeMapAlignment = false;
+    if (isCanonicalEnuMap) {
+        // 历史点云保持原样，只有之后的实时点云/位姿进入 ENU 坐标系。
+        m_realtimeMapToEnu = slam_realtime_alignment::canonicalMapToEnu();
+        m_hasRealtimeMapAlignment = true;
+        qInfo() << "[地图加载] 已启用固定 ENU 对齐：实时数据将转换到"
+                << "Mergedclouds_enu_optimized.slammap 坐标系";
+    }
     update();
     return true;
 }
