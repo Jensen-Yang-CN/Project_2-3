@@ -63,6 +63,7 @@ public slots:
     bool saveCurrentSlamMap(const QString &filePath, QString *errorMsg = nullptr) const;
     bool loadSlamMap(const QString &filePath, QString *errorMsg = nullptr);
     void setSlamGeoAnchor(const usv::SlamGeoAnchor &anchor);
+    void setRealtimeSlamGeoAnchor(const usv::SlamGeoAnchor &anchor);
     std::vector<usv::SlamMapBerth> slamMapBerths() const;
     void setSlamMapBerths(const std::vector<usv::SlamMapBerth> &berths);
 
@@ -198,6 +199,8 @@ private:
     // 加载历史地图后，实时 SLAM 坐标通过首个有效地理参考统一到 ENU。
     Eigen::Isometry3d m_realtimeMapToEnu = Eigen::Isometry3d::Identity();
     bool m_hasRealtimeMapAlignment = false;
+    // 本次实时 SLAM 会话的 ENU 原点；与历史地图锚点用于补偿原点平移。
+    usv::SlamGeoAnchor m_realtimeSlamGeoAnchor;
     static constexpr int kMaxSlamMapPoints = 1500000;
     static constexpr unsigned char kSlamMapIntensity = 90;
     static constexpr unsigned char kSlamLiveScanIntensity = 90;

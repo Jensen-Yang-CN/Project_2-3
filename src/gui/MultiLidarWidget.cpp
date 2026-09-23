@@ -1,6 +1,7 @@
 #include "MultiLidarWidget.h"
 #include "SlamMapBinaryIO.h"
 #include "SlamMapGeoCorrector.h"
+#include "SlamMapGeoUtils.h"
 #include "SlamRealtimeMapAlignment.h"
 #include "AppConfig.h"
 #include <QMouseEvent>
@@ -134,6 +135,7 @@ void MultiLidarWidget::clearSlamMap()
     m_slamPose = Eigen::Isometry3d::Identity();
     m_realtimeMapToEnu = Eigen::Isometry3d::Identity();
     m_hasRealtimeMapAlignment = false;
+    m_realtimeSlamGeoAnchor = {};
     m_slamX = 0.0f;
     m_slamY = 0.0f;
     m_slamYaw = 0.0f;
@@ -219,14 +221,15 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
     m_slamMapIsOccupancy = false;
     m_slamPath.clear();
     m_hasSlamPose = false;
-    m_realtimeMapToEnu = Eigen::Isometry3d::Identity();
-    m_hasRealtimeMapAlignment = false;
+    const slam_realtime_alignment::InitialRealtimeMapAlignment initialAlignment =
+        slam_realtime_alignment::initialRealtimeMapAlignment();
+    m_realtimeMapToEnu = initialAlignment.mapToEnu;
+    m_hasRealtimeMapAlignment = initialAlignment.ready;
+    m_realtimeSlamGeoAnchor = {};
     if (isCanonicalEnuMap) {
-        // 历史点云保持原样，只有之后的实时点云/位姿进入 ENU 坐标系。
-        m_realtimeMapToEnu = slam_realtime_alignment::canonicalMapToEnu();
-        m_hasRealtimeMapAlignment = true;
-        qInfo() << "[地图加载] 已启用固定 ENU 对齐：实时数据将转换到"
-                << "Mergedclouds_enu_optimized.slammap 坐标系";
+        // 历史点云保持原样。实时 SLAM 每次会话都有新的 map 原点，
+        // 等首个有效关键帧后再动态计算本次会话的 map->ENU 变换。
+        qInfo() << "[地图加载] 已加载固定 ENU 历史地图，等待首个实时关键帧建立会话对齐";
     }
     update();
     return true;
@@ -235,6 +238,13 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
 void MultiLidarWidget::setSlamGeoAnchor(const usv::SlamGeoAnchor &anchor)
 {
     m_slamGeoAnchor = anchor;
+}
+
+void MultiLidarWidget::setRealtimeSlamGeoAnchor(
+    const usv::SlamGeoAnchor &anchor)
+{
+    if (!m_realtimeSlamGeoAnchor.valid && anchor.valid)
+        m_realtimeSlamGeoAnchor = anchor;
 }
 
 std::vector<usv::SlamMapBerth> MultiLidarWidget::slamMapBerths() const
@@ -305,11 +315,14 @@ void MultiLidarWidget::appendSlamKeyframe(const usv::SlamKeyframe &keyframe)
 
     usv::SlamKeyframe displayKeyframe = keyframe;
     if (m_hasHistoricalSlamMap && m_historicalMapUsesEnu) {
-        if (!m_hasRealtimeMapAlignment)
-            captureRealtimeMapAlignment(keyframe);
-        if (m_hasRealtimeMapAlignment)
-            displayKeyframe = slam_realtime_alignment::transformKeyframe(
-                keyframe, m_realtimeMapToEnu);
+        if (!m_hasRealtimeMapAlignment
+            && !captureRealtimeMapAlignment(keyframe)) {
+            // 等待首个带有效地理参考的关键帧，禁止把尚未对齐的
+            // runtime map 点云混入固定 ENU 历史地图。
+            return;
+        }
+        displayKeyframe = slam_realtime_alignment::transformKeyframe(
+            keyframe, m_realtimeMapToEnu);
     }
 
     usv::SlamKeyframe savedKeyframe = displayKeyframe;
@@ -335,6 +348,29 @@ bool MultiLidarWidget::captureRealtimeMapAlignment(
     Eigen::Isometry3d mapToEnu = Eigen::Isometry3d::Identity();
     if (!slam_realtime_alignment::computeMapToEnu(keyframe, mapToEnu))
         return false;
+
+    // 历史地图和本次实时回放通常以不同的首个 GNSS 为 ENU 原点。
+    // 先把实时 ENU 原点换算到历史 ENU，再补到 map->ENU 平移中；旋转
+    // 仍然使用本次会话首帧的动态结果。
+    if (slam_map_geo::validAnchor(m_slamGeoAnchor)) {
+        if (!slam_map_geo::validAnchor(m_realtimeSlamGeoAnchor))
+            return false;
+        Eigen::Vector3d liveOriginInHistoricalEnu;
+        QString anchorError;
+        if (!slam_map_geo::anchorOffsetEnu(
+                m_slamGeoAnchor, m_realtimeSlamGeoAnchor,
+                liveOriginInHistoricalEnu, &anchorError)
+            || !slam_realtime_alignment::rebaseMapToHistoricalEnu(
+                mapToEnu, liveOriginInHistoricalEnu)) {
+            qWarning() << "[地图加载] 实时/历史 ENU 原点平移计算失败："
+                       << anchorError;
+            return false;
+        }
+        qInfo() << "[地图加载] 实时 ENU 原点相对历史地图偏移："
+                << liveOriginInHistoricalEnu.x()
+                << liveOriginInHistoricalEnu.y()
+                << liveOriginInHistoricalEnu.z();
+    }
 
     m_realtimeMapToEnu = mapToEnu;
     m_hasRealtimeMapAlignment = true;

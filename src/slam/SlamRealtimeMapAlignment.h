@@ -7,6 +7,39 @@
 namespace slam_realtime_alignment {
 
 /**
+ * 历史 ENU 地图加载后的实时对齐初始状态。
+ *
+ * 每次 PCAP/实时 SLAM 会话都会重新建立 map 原点，不能在加载历史地图
+ * 时直接复用历史地图生成阶段的固定矩阵；必须等首个有效关键帧提供本
+ * 次会话的地理参考后再计算 map->ENU。
+ */
+struct InitialRealtimeMapAlignment {
+    Eigen::Isometry3d mapToEnu = Eigen::Isometry3d::Identity();
+    bool ready = false;
+};
+
+inline InitialRealtimeMapAlignment initialRealtimeMapAlignment()
+{
+    return {};
+}
+
+/**
+ * 将实时会话的 map->ENU 变换重新基准化到历史地图 ENU 原点。
+ * liveOriginInHistoricalEnu 是实时 ENU 原点在历史 ENU 中的位置。
+ */
+inline bool rebaseMapToHistoricalEnu(
+    Eigen::Isometry3d &mapToEnu,
+    const Eigen::Vector3d &liveOriginInHistoricalEnu)
+{
+    if (!mapToEnu.matrix().allFinite()
+        || !liveOriginInHistoricalEnu.allFinite()) {
+        return false;
+    }
+    mapToEnu.translation() += liveOriginInHistoricalEnu;
+    return mapToEnu.matrix().allFinite();
+}
+
+/**
  * 老师提供的固定离线 ENU 地图使用的 map->ENU 变换。
  *
  * Mergedclouds_enu_optimized.slammap 内的历史点已经位于 ENU 坐标，

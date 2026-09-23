@@ -798,6 +798,12 @@ void MainWindow::onFusedCloudToBus(const QVector<M_PointXYZI> &cloud, double ts)
 
 void MainWindow::onImuPublishToBus(const IMUParsedData &data)
 {
+#ifdef ENABLE_SLAM
+    // DLO SLAM 使用首个有效 GNSS 建立本次会话 ENU 原点。及时把同一锚点
+    // 送给本机地图显示，避免历史地图与实时地图只同向但原点平移不一致。
+    if (slam_node_ && ui && ui->openGLWidget)
+        ui->openGLWidget->setRealtimeSlamGeoAnchor(slam_node_->getGeoAnchor());
+#endif
     CommBusManager::instance().ensurePublisher();
     if (auto *pub = CommBusManager::instance().sensorPublisher())
         pub->publishImu(data);
