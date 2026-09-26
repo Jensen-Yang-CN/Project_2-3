@@ -13,6 +13,8 @@
 #include <array>
 #include <limits>
 
+#include <Eigen/Geometry>
+
 namespace static_berth_library {
 namespace {
 
@@ -22,6 +24,10 @@ struct ParsedRecord {
     uint8_t type = 0;
     double center_x = 0.0;
     double center_y = 0.0;
+    double center_latitude = 0.0;
+    double center_longitude = 0.0;
+    double center_altitude = 0.0;
+    bool has_geodetic_center = false;
     BerthUdpUnit unit{};
     usv::Berth display_berth;
 };
@@ -29,6 +35,71 @@ struct ParsedRecord {
 bool finite(double value)
 {
     return std::isfinite(value);
+}
+
+bool validAnchor(const usv::SlamGeoAnchor &anchor)
+{
+    return anchor.valid
+        && finite(anchor.latitude_deg)
+        && finite(anchor.longitude_deg)
+        && finite(anchor.altitude_m)
+        && anchor.latitude_deg >= -90.0
+        && anchor.latitude_deg <= 90.0
+        && anchor.longitude_deg >= -180.0
+        && anchor.longitude_deg <= 180.0;
+}
+
+double radians(double degrees)
+{
+    return degrees * 3.14159265358979323846 / 180.0;
+}
+
+Eigen::Vector3d ecef(double latitude_deg, double longitude_deg,
+                     double altitude_m)
+{
+    constexpr double kWgs84A = 6378137.0;
+    constexpr double kWgs84Flattening = 1.0 / 298.257223563;
+    const double latitude = radians(latitude_deg);
+    const double longitude = radians(longitude_deg);
+    const double sinLatitude = std::sin(latitude);
+    const double cosLatitude = std::cos(latitude);
+    const double sinLongitude = std::sin(longitude);
+    const double cosLongitude = std::cos(longitude);
+    const double eccentricitySquared =
+        kWgs84Flattening * (2.0 - kWgs84Flattening);
+    const double primeVerticalRadius = kWgs84A
+        / std::sqrt(1.0 - eccentricitySquared
+                              * sinLatitude * sinLatitude);
+    return Eigen::Vector3d(
+        (primeVerticalRadius + altitude_m)
+            * cosLatitude * cosLongitude,
+        (primeVerticalRadius + altitude_m)
+            * cosLatitude * sinLongitude,
+        (primeVerticalRadius * (1.0 - eccentricitySquared)
+             + altitude_m)
+            * sinLatitude);
+}
+
+Eigen::Vector3d geodeticToEnu(double latitude_deg, double longitude_deg,
+                              double altitude_m,
+                              const usv::SlamGeoAnchor &anchor)
+{
+    const Eigen::Vector3d delta = ecef(latitude_deg, longitude_deg, altitude_m)
+        - ecef(anchor.latitude_deg, anchor.longitude_deg, anchor.altitude_m);
+    const double latitude = radians(anchor.latitude_deg);
+    const double longitude = radians(anchor.longitude_deg);
+    const double sinLatitude = std::sin(latitude);
+    const double cosLatitude = std::cos(latitude);
+    const double sinLongitude = std::sin(longitude);
+    const double cosLongitude = std::cos(longitude);
+    return Eigen::Vector3d(
+        -sinLongitude * delta.x() + cosLongitude * delta.y(),
+        -sinLatitude * cosLongitude * delta.x()
+            - sinLatitude * sinLongitude * delta.y()
+            + cosLatitude * delta.z(),
+        cosLatitude * cosLongitude * delta.x()
+            + cosLatitude * sinLongitude * delta.y()
+            + sinLatitude * delta.z());
 }
 
 bool number(const QJsonObject &object, const char *name, double &out)
@@ -104,8 +175,20 @@ bool parseRecord(const QJsonObject &object, ParsedRecord &out)
 
     double centerX = 0.0;
     double centerY = 0.0;
+    double centerLatitude = 0.0;
+    double centerLongitude = 0.0;
+    double centerAltitude = 0.0;
+    bool hasGeodeticCenter = false;
     const QJsonObject center =
         object.value(QLatin1String("center")).toObject();
+    hasGeodeticCenter = number(center, "latitude_deg", centerLatitude)
+        && number(center, "longitude_deg", centerLongitude);
+    if (center.contains(QLatin1String("up_m")))
+        hasGeodeticCenter = hasGeodeticCenter
+            && number(center, "up_m", centerAltitude);
+    else if (center.contains(QLatin1String("z_m")))
+        hasGeodeticCenter = hasGeodeticCenter
+            && number(center, "z_m", centerAltitude);
     if (!number(center, "east_m", centerX)
         || !number(center, "north_m", centerY)) {
         centerX = 0.0;
@@ -116,6 +199,21 @@ bool parseRecord(const QJsonObject &object, ParsedRecord &out)
         }
         centerX *= 0.25;
         centerY *= 0.25;
+    }
+    if (!hasGeodeticCenter) {
+        centerLatitude = 0.0;
+        centerLongitude = 0.0;
+        centerAltitude = 0.0;
+        for (const auto &point : points) {
+            centerLatitude += point.latitude_deg;
+            centerLongitude += point.longitude_deg;
+            centerAltitude += point.altitude_m;
+        }
+        centerLatitude *= 0.25;
+        centerLongitude *= 0.25;
+        centerAltitude *= 0.25;
+        hasGeodeticCenter = finite(centerLatitude)
+            && finite(centerLongitude) && finite(centerAltitude);
     }
 
     usv::Berth berth;
@@ -141,6 +239,10 @@ bool parseRecord(const QJsonObject &object, ParsedRecord &out)
     out.type = static_cast<uint8_t>(type);
     out.center_x = centerX;
     out.center_y = centerY;
+    out.center_latitude = centerLatitude;
+    out.center_longitude = centerLongitude;
+    out.center_altitude = centerAltitude;
+    out.has_geodetic_center = hasGeodeticCenter;
     out.unit = berth_udp::makeBerthUnit(out.type, berth, points);
     out.display_berth = berth;
     return true;
@@ -232,6 +334,10 @@ bool load(const QString &path, LoadResult &result, QString *error)
         uint8_t type = 0;
         double x = 0.0;
         double y = 0.0;
+        double latitude = 0.0;
+        double longitude = 0.0;
+        double altitude = 0.0;
+        bool has_geodetic_center = false;
         BerthUdpUnit unit{};
         usv::Berth display_berth;
     };
@@ -254,8 +360,10 @@ bool load(const QString &path, LoadResult &result, QString *error)
         }
         if (match < 0) {
             clusters.push_back(Cluster{
-                record.type, record.center_x, record.center_y, record.unit,
-                record.display_berth});
+                record.type, record.center_x, record.center_y,
+                record.center_latitude, record.center_longitude,
+                record.center_altitude, record.has_geodetic_center,
+                record.unit, record.display_berth});
         }
     }
 
@@ -264,7 +372,55 @@ bool load(const QString &path, LoadResult &result, QString *error)
     for (const Cluster &cluster : clusters) {
         result.units.push_back(cluster.unit);
         result.display_berths.push_back(cluster.display_berth);
+        if (!result.display_reference.valid && cluster.has_geodetic_center) {
+            result.display_reference.valid = true;
+            result.display_reference.latitude_deg = cluster.latitude;
+            result.display_reference.longitude_deg = cluster.longitude;
+            result.display_reference.altitude_m = cluster.altitude;
+            result.display_reference.projected_east_m = cluster.x;
+            result.display_reference.projected_north_m = cluster.y;
+        }
     }
+    return true;
+}
+
+bool rebaseDisplayBerthsToAnchor(
+    LoadResult &result,
+    const usv::SlamGeoAnchor &target_anchor,
+    QString *error)
+{
+    if (error)
+        error->clear();
+    if (result.display_berths_rebased)
+        return true;
+    if (!validAnchor(target_anchor))
+        return fail(error, QStringLiteral("目标 ENU 地理锚点无效"));
+    if (!result.display_reference.valid
+        || !finite(result.display_reference.latitude_deg)
+        || !finite(result.display_reference.longitude_deg)
+        || !finite(result.display_reference.altitude_m)
+        || !finite(result.display_reference.projected_east_m)
+        || !finite(result.display_reference.projected_north_m)) {
+        return fail(error, QStringLiteral("泊位库缺少可用于换算的经纬度参考点"));
+    }
+
+    const Eigen::Vector3d targetEnu = geodeticToEnu(
+        result.display_reference.latitude_deg,
+        result.display_reference.longitude_deg,
+        result.display_reference.altitude_m,
+        target_anchor);
+    const double offsetX = targetEnu.x()
+        - result.display_reference.projected_east_m;
+    const double offsetY = targetEnu.y()
+        - result.display_reference.projected_north_m;
+    if (!finite(offsetX) || !finite(offsetY))
+        return fail(error, QStringLiteral("泊位库坐标换算产生了非法平移"));
+
+    for (usv::Berth &berth : result.display_berths) {
+        berth.cx += offsetX;
+        berth.cy += offsetY;
+    }
+    result.display_berths_rebased = true;
     return true;
 }
 

@@ -5,6 +5,7 @@
 #include <QTemporaryFile>
 
 #include <iostream>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -46,7 +47,8 @@ int main(int argc, char **argv)
       "frames": [{"detections": [
         {"record_class":"berth_library","is_final_output":true,
          "berth_type":{"code":2},
-         "center":{"east_m":10.0,"north_m":20.0},
+         "center":{"latitude_deg":35.404053208,"longitude_deg":119.554676156,
+                    "east_m":10.0,"north_m":20.0},
          "vertices":[
            {"latitude_deg":35.0,"longitude_deg":119.0,"east_m":8.0,"north_m":18.0},
            {"latitude_deg":35.0,"longitude_deg":119.0,"east_m":12.0,"north_m":18.0},
@@ -56,7 +58,8 @@ int main(int argc, char **argv)
          "width_m":4.0,"length_m":4.0,"angle_deg":0.0},
         {"record_class":"berth_library","is_final_output":true,
          "berth_type":{"code":2},
-         "center":{"east_m":10.2,"north_m":20.1},
+         "center":{"latitude_deg":35.404053208,"longitude_deg":119.554676156,
+                    "east_m":10.2,"north_m":20.1},
          "vertices":[
            {"latitude_deg":35.0,"longitude_deg":119.0,"east_m":8.2,"north_m":18.1},
            {"latitude_deg":35.0,"longitude_deg":119.0,"east_m":12.2,"north_m":18.1},
@@ -66,7 +69,8 @@ int main(int argc, char **argv)
          "width_m":4.0,"length_m":4.0,"angle_deg":0.0},
         {"record_class":"berth_library","is_final_output":true,
          "berth_type":{"code":1},
-         "center":{"east_m":30.0,"north_m":20.0},
+         "center":{"latitude_deg":35.404053208,"longitude_deg":119.554676156,
+                    "east_m":30.0,"north_m":20.0},
          "vertices":[
            {"latitude_deg":35.0,"longitude_deg":119.0,"east_m":28.0,"north_m":18.0},
            {"latitude_deg":35.0,"longitude_deg":119.0,"east_m":32.0,"north_m":18.0},
@@ -94,6 +98,21 @@ int main(int argc, char **argv)
         check(result.display_berths[0].cx == 10.0
                   && result.display_berths[0].cy == 20.0,
               "本地绘制泊位必须保留 ENU 中心", failures);
+    }
+    usv::SlamGeoAnchor target_anchor;
+    target_anchor.valid = true;
+    target_anchor.latitude_deg = 35.405290341005;
+    target_anchor.longitude_deg = 119.555210676044;
+    target_anchor.altitude_m = 0.0;
+    check(static_berth_library::rebaseDisplayBerthsToAnchor(
+              result, target_anchor, &error),
+          "固定泊位显示层应能换算到历史地图 ENU 锚点", failures);
+    if (result.display_berths.size() == 2) {
+        check(std::abs(result.display_berths[0].cx + 48.5543) < 0.2
+                  && std::abs(result.display_berths[0].cy + 137.2573) < 0.2,
+              "固定泊位换算后应落在 canonical ENU 地图坐标", failures);
+        check(result.units[0].x1 == 80 && result.units[0].y1 == 180,
+              "固定泊位 UDP 坐标不得因本机显示换算而改变", failures);
     }
     if (result.units.size() == 2) {
         check(result.units[0].type == 2,

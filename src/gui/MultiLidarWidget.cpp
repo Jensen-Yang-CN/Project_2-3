@@ -289,6 +289,16 @@ void MultiLidarWidget::loadFixedBerthLibrary()
         QString error;
         if (!static_berth_library::load(candidate, loaded, &error))
             continue;
+        if (slam_map_geo::validAnchor(m_slamGeoAnchor)) {
+            QString rebaseError;
+            if (!static_berth_library::rebaseDisplayBerthsToAnchor(
+                    loaded, m_slamGeoAnchor, &rebaseError)) {
+                qWarning() << "[固定泊位图层] 本机显示坐标换算失败："
+                           << rebaseError;
+            } else {
+                qInfo() << "[固定泊位图层] 已按历史地图 ENU 锚点对齐本机显示层";
+            }
+        }
         m_slamFixedBerths = std::move(loaded.display_berths);
         return;
     }
