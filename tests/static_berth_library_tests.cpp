@@ -88,6 +88,13 @@ int main(int argc, char **argv)
     check(error.isEmpty(), "successful load should not report an error", failures);
     check(result.units.size() == 2,
           "nearby repeated records should be deduplicated", failures);
+    check(result.display_berths.size() == 2,
+          "固定泊位解析结果必须同时提供本地绘制记录", failures);
+    if (result.display_berths.size() == 2) {
+        check(result.display_berths[0].cx == 10.0
+                  && result.display_berths[0].cy == 20.0,
+              "本地绘制泊位必须保留 ENU 中心", failures);
+    }
     if (result.units.size() == 2) {
         check(result.units[0].type == 2,
               "first static berth should preserve protocol type", failures);

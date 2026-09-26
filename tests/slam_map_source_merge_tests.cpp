@@ -133,6 +133,28 @@ void testRuntimeMapTopicsAndBerthControl(int &failures)
              "the independent berth button must be clearly labelled", failures);
     contains(window, "void MainWindow::onBerthDetectionClicked()",
              "the independent berth button must have its own handler", failures);
+
+    contains(window,
+             "m_slamKeyframeTopic = comm.getStateTopic<usv::SlamKeyframe>(\"slam/keyframe\", 32);",
+             "OctoMap 模式下 UI 仍需订阅关键帧", failures);
+    contains(window,
+             "m_slamScanTopic = comm.getStateTopic<usv::SlamScanCloudMessage>(\"slam/scan_cloud\", 8);",
+             "OctoMap 模式下 UI 仍需订阅实时扫描", failures);
+
+    const std::string widget = readFile(
+        root / "src" / "gui" / "MultiLidarWidget.cpp");
+    contains(widget, "|| !m_slamRealtimeMapCloud.isEmpty()",
+             "实时关键帧层必须参与 paintGL 就绪判断", failures);
+    contains(widget, "m_slamOccupancyCloud",
+             "占据栅格必须拥有独立缓存，不能覆盖历史点云", failures);
+    contains(widget, "loadFixedBerthLibrary();",
+             "加载离线地图后必须尝试加载固定泊位库", failures);
+    contains(widget, "fixedBerthResultForPaint()",
+             "固定泊位库必须进入本地绘制路径", failures);
+    if (widget.find("if (m_slamMapIsOccupancy)\n        return;") != std::string::npos) {
+        ++failures;
+        std::cerr << "FAIL: 关键帧不能再被占据栅格模式直接丢弃\n";
+    }
 }
 
 }  // namespace

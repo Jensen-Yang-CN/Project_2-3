@@ -1081,10 +1081,14 @@ void MainWindow::syncPathPlanButton()
     if (pathPlanBtn) {
         QSignalBlocker blocker(pathPlanBtn);
         pathPlanBtn->setChecked(m_bridgeDetectionEnabled);
+        pathPlanBtn->setText(m_bridgeDetectionEnabled
+                                  ? tr("停止桥检") : tr("桥梁检测"));
     }
     if (berthDetectBtn) {
         QSignalBlocker blocker(berthDetectBtn);
         berthDetectBtn->setChecked(m_berthDetectionEnabled);
+        berthDetectBtn->setText(m_berthDetectionEnabled
+                                    ? tr("停止泊检") : tr("泊位检测"));
     }
 }
 
@@ -1154,7 +1158,6 @@ void MainWindow::subscribeSlamResultBus()
                 Qt::QueuedConnection);
         });
 
-#ifndef ENABLE_OCTOMAP
     m_slamKeyframeTopic = comm.getStateTopic<usv::SlamKeyframe>("slam/keyframe", 32);
     m_slamKeyframeBusSubId = m_slamKeyframeTopic->subscribe(
         [gl](std::shared_ptr<const usv::SlamKeyframe> msg) {
@@ -1183,8 +1186,6 @@ void MainWindow::subscribeSlamResultBus()
                 },
                 Qt::QueuedConnection);
         });
-#endif
-
     m_slamBusConnected = true;
 #endif
 }

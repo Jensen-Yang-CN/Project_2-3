@@ -20,6 +20,7 @@
 #include "SlamMapStitcher.h"
 #include "SlamTileMapTypes.h"
 #include "UsvDirectionUtils.h"
+#include "StaticBerthLibrary.h"
 #ifdef ENABLE_PCL_PERCEPTION
 #include "pcl_cluster_preview.h"
 #endif
@@ -110,6 +111,8 @@ private:
     bool berthAlignedForPaint() const;
     void persistSynchronizedBerthResult();
     usv::BerthMeasureResult savedBerthResultForPaint() const;
+    usv::BerthMeasureResult fixedBerthResultForPaint() const;
+    void loadFixedBerthLibrary();
     void mergeKeyframeIntoMap(const usv::SlamKeyframe &keyframe);
     bool captureRealtimeMapAlignment(const usv::SlamKeyframe &keyframe);
     void rebuildOccupancyWireframe();
@@ -178,6 +181,7 @@ private:
     // 历史地图与实时关键帧分层绘制，避免加载历史地图后看起来像重复地图。
     QVector<M_PointXYZI> m_slamRealtimeMapCloud;
     QVector<M_PointXYZI> m_slamLiveScan;
+    QVector<M_PointXYZI> m_slamOccupancyCloud;
     std::vector<usv::SlamKeyframe> m_slamKeyframes;
     // 当前回放会话的关键帧，保存地图时避免带入已加载的历史关键帧。
     std::vector<usv::SlamKeyframe> m_slamRealtimeKeyframes;
@@ -194,6 +198,7 @@ private:
     int m_slamTileGpuPointBudget = 1500000;
     usv::SlamGeoAnchor m_slamGeoAnchor;
     SlamMapBerthStore m_slamRealtimeBerthStore;
+    std::vector<usv::Berth> m_slamFixedBerths;
     Eigen::Isometry3d m_slamPose = Eigen::Isometry3d::Identity();
     bool m_hasSlamPose = false;
     // 加载历史地图后，实时 SLAM 坐标通过首个有效地理参考统一到 ENU。

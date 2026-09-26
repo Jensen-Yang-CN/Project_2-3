@@ -80,6 +80,14 @@ int main()
               && source.find("berthDetectBtn->setText(tr(\"泊位检测\"))")
               != std::string::npos,
           "button labels must make the two responsibilities explicit", failures);
+    check(source.find("m_bridgeDetectionEnabled") != std::string::npos
+              && source.find("tr(\"停止桥检\")") != std::string::npos
+              && source.find("tr(\"桥梁检测\")") != std::string::npos,
+          "桥梁按钮文字必须跟随开关状态", failures);
+    check(source.find("m_berthDetectionEnabled") != std::string::npos
+              && source.find("tr(\"停止泊检\")") != std::string::npos
+              && source.find("tr(\"泊位检测\")") != std::string::npos,
+          "泊位按钮文字必须跟随开关状态", failures);
     check(source.find("m_bridgeDetectionEnabled.load(") != std::string::npos,
           "camera and bridge inputs must be gated by the bridge switch", failures);
     check(source.find("m_berthDetectionEnabled.load(") != std::string::npos,

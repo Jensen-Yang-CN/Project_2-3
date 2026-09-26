@@ -9,6 +9,8 @@
 #include <QElapsedTimer>
 #include <QDateTime>
 #include <QFileInfo>
+#include <QCoreApplication>
+#include <QDir>
 #include <QtMath>
 
 #include <algorithm>
@@ -121,11 +123,13 @@ void MultiLidarWidget::clearSlamMap()
     m_slamMapCloud.clear();
     m_slamRealtimeMapCloud.clear();
     m_slamLiveScan.clear();
+    m_slamOccupancyCloud.clear();
     m_slamKeyframes.clear();
     m_slamRealtimeKeyframes.clear();
     m_slamBerthOverlay.resetAll();
     m_slamMapBerthStore.clear();
     m_slamRealtimeBerthStore.clear();
+    m_slamFixedBerths.clear();
     m_slamOccupancyWire.clear();
     m_slamMapIsOccupancy = false;
     m_hasHistoricalSlamMap = false;
@@ -146,7 +150,9 @@ void MultiLidarWidget::clearSlamMap()
 
 bool MultiLidarWidget::hasSlamMapData() const
 {
-    return !m_slamMapCloud.isEmpty();
+    return !m_slamMapCloud.isEmpty()
+        || !m_slamRealtimeMapCloud.isEmpty()
+        || !m_slamOccupancyCloud.isEmpty();
 }
 
 bool MultiLidarWidget::saveCurrentSlamMap(const QString &filePath, QString *errorMsg) const
@@ -196,6 +202,7 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
         m_slamGeoAnchor = archive.anchor;
         m_slamMapBerthStore.setRecords(archive.berths);
         m_slamRealtimeBerthStore.clear();
+        loadFixedBerthLibrary();
         m_hasHistoricalSlamMap = true;
         // canonical 离线地图本身已经是 ENU 坐标，不能依赖关键帧中不存在的
         // GNSS 参考来推导变换；实时数据使用 georeference(1).json 中的固定矩阵。
@@ -208,6 +215,7 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
         m_slamGeoAnchor = {};
         m_slamMapBerthStore.clear();
         m_slamRealtimeBerthStore.clear();
+        m_slamFixedBerths.clear();
         m_hasHistoricalSlamMap = true;
         m_historicalMapUsesEnu = false;
     }
@@ -217,6 +225,7 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
     m_slamMapCloud = std::move(loaded);
     m_slamRealtimeMapCloud.clear();
     m_slamLiveScan.clear();
+    m_slamOccupancyCloud.clear();
     m_slamOccupancyWire.clear();
     m_slamMapIsOccupancy = false;
     m_slamPath.clear();
@@ -257,6 +266,32 @@ void MultiLidarWidget::setSlamMapBerths(
 {
     m_slamMapBerthStore.setRecords(berths);
     update();
+}
+
+void MultiLidarWidget::loadFixedBerthLibrary()
+{
+    m_slamFixedBerths.clear();
+
+    const QString fileName =
+        QStringLiteral("泊位检测完整地理信息_20260901.json");
+    const QStringList candidates = {
+        QStringLiteral(
+            "D:/xwechat_files/wxid_0cfu1zhr4dz022_ae9a/msg/file/2026-09/"
+            "泊位检测完整地理信息_20260901.json"),
+        QDir(QCoreApplication::applicationDirPath()).filePath(fileName),
+        QDir::current().filePath(fileName),
+    };
+
+    for (const QString &candidate : candidates) {
+        if (!QFileInfo::exists(candidate))
+            continue;
+        static_berth_library::LoadResult loaded;
+        QString error;
+        if (!static_berth_library::load(candidate, loaded, &error))
+            continue;
+        m_slamFixedBerths = std::move(loaded.display_berths);
+        return;
+    }
 }
 
 void MultiLidarWidget::updateSlamOdometry(const usv::SlamOdometryState &state)
@@ -309,10 +344,6 @@ void MultiLidarWidget::updateSlamLiveScan(const QVector<M_PointXYZI> &worldCloud
 
 void MultiLidarWidget::appendSlamKeyframe(const usv::SlamKeyframe &keyframe)
 {
-    // 启用 OctoMap 栅格显示后，关键帧点云不再累积进 SLAM 地图
-    if (m_slamMapIsOccupancy)
-        return;
-
     usv::SlamKeyframe displayKeyframe = keyframe;
     if (m_hasHistoricalSlamMap && m_historicalMapUsesEnu) {
         if (!m_hasRealtimeMapAlignment
@@ -410,15 +441,23 @@ usv::BerthMeasureResult MultiLidarWidget::savedBerthResultForPaint() const
     return result;
 }
 
+usv::BerthMeasureResult MultiLidarWidget::fixedBerthResultForPaint() const
+{
+    usv::BerthMeasureResult result;
+    result.is_detected = !m_slamFixedBerths.empty();
+    result.is_using_memory = true;
+    result.expanded_berths = m_slamFixedBerths;
+    for (usv::Berth &berth : result.expanded_berths)
+        berth.source = usv::BerthDetectionSource::CoordinateLibrary;
+    return result;
+}
+
 void MultiLidarWidget::updateSlamOccupancyGrid(QVector<M_PointXYZI> centers, float resolution_m)
 {
     m_slamMapIsOccupancy = true;
-    m_hasHistoricalSlamMap = false;
-    m_slamRealtimeMapCloud.clear();
-    m_slamLiveScan.clear();
+    m_slamOccupancyCloud = std::move(centers);
     if (resolution_m > 1e-4f)
         m_occupancyResolution = resolution_m;
-    m_slamMapCloud = std::move(centers);
     rebuildOccupancyWireframe();
     update();
 }
@@ -426,10 +465,11 @@ void MultiLidarWidget::updateSlamOccupancyGrid(QVector<M_PointXYZI> centers, flo
 void MultiLidarWidget::rebuildOccupancyWireframe()
 {
     m_slamOccupancyWire.clear();
-    if (m_slamMapCloud.isEmpty())
+    const QVector<M_PointXYZI> &source = m_slamOccupancyCloud;
+    if (source.isEmpty())
         return;
 
-    const int n = m_slamMapCloud.size();
+    const int n = source.size();
     const int stride = (n > kMaxOccupancyWireCubes)
         ? (n + kMaxOccupancyWireCubes - 1) / kMaxOccupancyWireCubes
         : 1;
@@ -447,7 +487,7 @@ void MultiLidarWidget::rebuildOccupancyWireframe()
     };
 
     for (int i = 0; i < n; i += stride) {
-        const M_PointXYZI &c = m_slamMapCloud[i];
+        const M_PointXYZI &c = source[i];
         const float x = c.x, y = c.y, z = c.z;
         const unsigned char inten = c.intensity ? c.intensity : kSlamMapIntensity;
         const float x0 = x - h, x1 = x + h;
@@ -474,7 +514,7 @@ void MultiLidarWidget::rebuildOccupancyWireframe()
 void MultiLidarWidget::mergeKeyframeIntoMap(const usv::SlamKeyframe &keyframe)
 {
     const Eigen::Isometry3d &pose = keyframe.pose;
-    QVector<M_PointXYZI> &target = m_hasHistoricalSlamMap
+    QVector<M_PointXYZI> &target = (m_hasHistoricalSlamMap || m_slamMapIsOccupancy)
         ? m_slamRealtimeMapCloud : m_slamMapCloud;
     target.reserve(target.size() + static_cast<int>(keyframe.cloud.size()));
     for (const M_PointXYZI &p : keyframe.cloud) {
@@ -752,6 +792,7 @@ void MultiLidarWidget::paintGL() {
 
     const bool slamCloudReady = m_showSlamMap
         && (!m_slamMapCloud.isEmpty() || !m_slamLiveScan.isEmpty()
+            || !m_slamRealtimeMapCloud.isEmpty()
             || !m_slamOccupancyWire.isEmpty());
     const bool fusedCloudReady = !m_showSlamMap
         && (!m_fusedData.isEmpty() || m_berthVisible);
@@ -794,13 +835,18 @@ void MultiLidarWidget::paintGL() {
             renderFusedCloud(matrix);
 
         if (m_showSlamMap) {
+            const usv::BerthMeasureResult fixedBerthResult =
+                fixedBerthResultForPaint();
+            if (!fixedBerthResult.expanded_berths.empty())
+                drawBerthOverlays(matrix, fixedBerthResult, false);
+
             const auto &worldResult = m_slamBerthOverlay.worldResult();
             const usv::BerthMeasureResult *slamBerthResult =
                 (worldResult && m_slamBerthOverlay.visibleAtLatestSlamPose())
                 ? &(*worldResult) : nullptr;
             if (slamBerthResult) {
                 drawBerthOverlays(matrix, *slamBerthResult, false);
-            } else {
+            } else if (fixedBerthResult.expanded_berths.empty()) {
                 const usv::BerthMeasureResult savedBerthResult =
                     savedBerthResultForPaint();
                 if (!savedBerthResult.expanded_berths.empty())
@@ -1379,7 +1425,8 @@ void MultiLidarWidget::renderSlamMap(const QMatrix4x4 &viewMatrix)
     m_program->setUniformValue("matrix", viewMatrix);
     m_program->setUniformValue("useUsvColor", 0);
 
-    if (m_slamMapIsOccupancy && !m_slamOccupancyWire.isEmpty()) {
+    if (m_slamMapIsOccupancy && !m_hasHistoricalSlamMap
+        && !m_slamOccupancyWire.isEmpty()) {
         glLineWidth(1.0f);
         drawArrays(m_slamOccupancyWire, GL_LINES);
     } else if (!m_slamMapCloud.isEmpty()) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PerceptionUdpProtocol.h"
+#include "common_types_extended.h"
 
 #include <QString>
 
@@ -10,6 +11,8 @@ namespace static_berth_library {
 
 struct LoadResult {
     std::vector<BerthUdpUnit> units;
+    // 与 UDP 单元同源的本地绘制结果；不参与协议编码。
+    std::vector<usv::Berth> display_berths;
 };
 
 /**

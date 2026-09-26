@@ -23,6 +23,7 @@ struct ParsedRecord {
     double center_x = 0.0;
     double center_y = 0.0;
     BerthUdpUnit unit{};
+    usv::Berth display_berth;
 };
 
 bool finite(double value)
@@ -120,6 +121,8 @@ bool parseRecord(const QJsonObject &object, ParsedRecord &out)
     usv::Berth berth;
     berth.w = width;
     berth.l = length;
+    berth.cx = centerX;
+    berth.cy = centerY;
     berth.angle = angle;
     berth.kind = type == BerthProtocolType::kLine
         ? usv::BerthKind::Line : usv::BerthKind::UShape;
@@ -139,6 +142,7 @@ bool parseRecord(const QJsonObject &object, ParsedRecord &out)
     out.center_x = centerX;
     out.center_y = centerY;
     out.unit = berth_udp::makeBerthUnit(out.type, berth, points);
+    out.display_berth = berth;
     return true;
 }
 
@@ -229,6 +233,7 @@ bool load(const QString &path, LoadResult &result, QString *error)
         double x = 0.0;
         double y = 0.0;
         BerthUdpUnit unit{};
+        usv::Berth display_berth;
     };
     std::vector<Cluster> clusters;
     clusters.reserve(records.size());
@@ -249,13 +254,17 @@ bool load(const QString &path, LoadResult &result, QString *error)
         }
         if (match < 0) {
             clusters.push_back(Cluster{
-                record.type, record.center_x, record.center_y, record.unit});
+                record.type, record.center_x, record.center_y, record.unit,
+                record.display_berth});
         }
     }
 
     result.units.reserve(clusters.size());
-    for (const Cluster &cluster : clusters)
+    result.display_berths.reserve(clusters.size());
+    for (const Cluster &cluster : clusters) {
         result.units.push_back(cluster.unit);
+        result.display_berths.push_back(cluster.display_berth);
+    }
     return true;
 }
 
