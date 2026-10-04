@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSaveFile>
 
 #include <algorithm>
 #include <cmath>
@@ -187,6 +188,9 @@ bool AppConfig::load(const QString &filePath)
         std::clamp(water.max_fallback_frames, 0, 1000);
 
     const QJsonObject network = root.value(QStringLiteral("network")).toObject();
+    m_network.delivery_remote_ip = network.value(
+        QStringLiteral("delivery_remote_ip"))
+        .toString(QStringLiteral("101.1.101.105"));
     if (network.contains(QStringLiteral("receive_mode")))
         m_network.receive_mode = network.value(QStringLiteral("receive_mode")).toString(m_network.receive_mode);
     const QJsonObject localIps = network.value(QStringLiteral("local_ips")).toObject();
@@ -236,6 +240,62 @@ bool AppConfig::load(const QString &filePath)
             << "cleanup_on_startup=" << m_systemLog.cleanup_on_startup
             << "sensor_fps_interval_sec=" << m_systemLog.sensor_fps_interval_sec
             << "disk_check_interval_sec=" << m_systemLog.disk_check_interval_sec;
+    return true;
+}
+
+bool AppConfig::saveDeliveryRemoteIp(const QString &remoteIp,
+                                    QString *errorMsg)
+{
+    const QString trimmedIp = remoteIp.trimmed();
+    if (trimmedIp.isEmpty()) {
+        if (errorMsg)
+            *errorMsg = QStringLiteral("投递对端 IP 不能为空");
+        return false;
+    }
+
+    const QString path = m_configFilePath.isEmpty()
+        ? resolvePath(QStringLiteral("config.json"))
+        : m_configFilePath;
+    QJsonObject root;
+    QFile existing(path);
+    if (existing.exists()) {
+        if (!existing.open(QIODevice::ReadOnly)) {
+            if (errorMsg)
+                *errorMsg = QStringLiteral("无法读取配置文件：%1").arg(path);
+            return false;
+        }
+        const QByteArray existingBytes = existing.readAll();
+        existing.close();
+        const QJsonDocument document = QJsonDocument::fromJson(existingBytes);
+        if (!document.isObject()) {
+            if (errorMsg)
+                *errorMsg = QStringLiteral("配置文件格式无效：%1").arg(path);
+            return false;
+        }
+        root = document.object();
+    }
+
+    QJsonObject network = root.value(QStringLiteral("network")).toObject();
+    network.insert(QStringLiteral("delivery_remote_ip"), trimmedIp);
+    root.insert(QStringLiteral("network"), network);
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (errorMsg)
+            *errorMsg = QStringLiteral("无法写入配置文件：%1").arg(path);
+        return false;
+    }
+    const QByteArray json =
+        QJsonDocument(root).toJson(QJsonDocument::Indented);
+    if (file.write(json) != json.size() || !file.commit()) {
+        if (errorMsg)
+            *errorMsg = QStringLiteral("保存投递 IP 到配置文件失败：%1")
+                            .arg(path);
+        return false;
+    }
+
+    m_configFilePath = path;
+    m_network.delivery_remote_ip = trimmedIp;
     return true;
 }
 

@@ -2,6 +2,8 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include <iostream>
@@ -51,6 +53,33 @@ int main(int argc, char **argv)
                      .missing_berth_timestamps_to_start_bridge == 14,
           "both scheduling thresholds should load", failures);
 
+    check(AppConfig::instance().network().delivery_remote_ip
+                  == QStringLiteral("101.1.101.105"),
+          "map delivery should have the requested default remote IP", failures);
+    QString saveError;
+    check(AppConfig::instance().saveDeliveryRemoteIp(
+              QStringLiteral("192.168.10.25"), &saveError),
+          "delivery remote IP should save to the active config file", failures);
+    check(AppConfig::instance().load(path),
+          "config should reload after saving the delivery IP", failures);
+    check(AppConfig::instance().network().delivery_remote_ip
+                  == QStringLiteral("192.168.10.25"),
+          "saved delivery IP should be restored after reload", failures);
+    QFile savedConfig(path);
+    check(savedConfig.open(QIODevice::ReadOnly),
+          "saved config should remain readable", failures);
+    if (savedConfig.isOpen()) {
+        const QJsonObject savedRoot =
+            QJsonDocument::fromJson(savedConfig.readAll()).object();
+        check(savedRoot.value(QStringLiteral("compute_node_scheduler"))
+                      .toObject()
+                      .value(QStringLiteral(
+                          "stable_berth_timestamps_to_stop_bridge"))
+                      .toInt() == 12,
+              "saving the IP should preserve unrelated config values",
+              failures);
+    }
+
     check(writeConfig(path, R"JSON({
       "compute_node_scheduler": {
         "stable_berth_timestamps_to_stop_bridge": 0,
@@ -70,4 +99,3 @@ int main(int argc, char **argv)
     std::cout << "All detection scheduler config tests passed\n";
     return 0;
 }
-

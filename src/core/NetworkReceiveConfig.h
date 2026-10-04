@@ -11,6 +11,8 @@ struct NetworkReceiveConfig {
     QString lidar_local_ip = QStringLiteral("192.168.1.177");
     QString video_local_ip = QStringLiteral("192.168.58.177");
     QString navigation_local_ip = QStringLiteral("101.1.101.177");
+    // 信息投递对端 IP；用户在投递配置对话框确认后保存到 config.json。
+    QString delivery_remote_ip = QStringLiteral("101.1.101.105");
 
     bool useSocketMode() const { return receive_mode.compare(QStringLiteral("socket"), Qt::CaseInsensitive) == 0; }
 };

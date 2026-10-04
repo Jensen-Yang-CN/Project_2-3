@@ -56,6 +56,9 @@ public:
 
     /** 从程序目录下 config.json 加载；失败则保留内置默认值 */
     bool load(const QString &filePath = QString());
+    /** 更新当前配置文件中的投递对端 IP，并保留其余配置项。 */
+    bool saveDeliveryRemoteIp(const QString &remoteIp,
+                              QString *errorMsg = nullptr);
 
     QString mapsDirectory() const;
     QString devicesFilePath() const;

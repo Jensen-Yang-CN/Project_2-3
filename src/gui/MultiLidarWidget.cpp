@@ -3,6 +3,7 @@
 #include "SlamMapGeoCorrector.h"
 #include "SlamMapGeoUtils.h"
 #include "SlamRealtimeMapAlignment.h"
+#include "SlamMapViewInteraction.h"
 #include "AppConfig.h"
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -145,6 +146,8 @@ void MultiLidarWidget::clearSlamMap()
     m_slamYaw = 0.0f;
     m_viewPanX = 0.0f;
     m_viewPanY = 0.0f;
+    m_3dPanX = 0.0f;
+    m_3dPanY = 0.0f;
     update();
 }
 
@@ -225,6 +228,8 @@ bool MultiLidarWidget::loadSlamMap(const QString &filePath, QString *errorMsg)
     m_slamMapCloud = std::move(loaded);
     m_slamRealtimeMapCloud.clear();
     m_slamLiveScan.clear();
+    m_3dPanX = 0.0f;
+    m_3dPanY = 0.0f;
     m_slamOccupancyCloud.clear();
     m_slamOccupancyWire.clear();
     m_slamMapIsOccupancy = false;
@@ -821,12 +826,14 @@ void MultiLidarWidget::paintGL() {
             const float range = m_bevRange;
             matrix.ortho(-range * aspect, range * aspect, -range, range, 0.1f, 1000.0f);
             matrix.lookAt(QVector3D(0, 0, 100), QVector3D(0, 0, 0), QVector3D(0, 1, 0));
-            if (m_showSlamMap)
-                matrix.translate(-m_viewPanX, -m_viewPanY, 0.0f);
+            // 俯视图平移同时作用于离线地图和实时点云，避免两种显示模式拖动逻辑不一致。
+            matrix.translate(-m_viewPanX, -m_viewPanY, 0.0f);
         } else {
             matrix.perspective(45.0f, static_cast<float>(width()) / static_cast<float>(height()),
                                0.1f, 2000.0f);
             matrix.translate(0, 0, m_zOffset);
+            // 3D 平移放在相机旋转之前，让右键拖动沿屏幕方向移动视野。
+            matrix.translate(m_3dPanX, m_3dPanY, 0.0f);
             matrix.rotate(m_rotationX, 1, 0, 0);
             matrix.rotate(m_rotationY, 0, 0, 1);
         }
@@ -1344,20 +1351,25 @@ void MultiLidarWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void MultiLidarWidget::mouseMoveEvent(QMouseEvent *event) {
-    if (event->buttons() & Qt::LeftButton) {
-        int dx = event->x() - m_lastMousePos.x();
-        int dy = event->y() - m_lastMousePos.y();
+    const int dx = event->x() - m_lastMousePos.x();
+    const int dy = event->y() - m_lastMousePos.y();
 
-        if (m_showSlamMap && m_isBevMode) {
-            const float aspect = static_cast<float>(width()) / static_cast<float>(qMax(1, height()));
-            const float unitsPerPixelX = (2.0f * m_bevRange * aspect) / static_cast<float>(qMax(1, width()));
-            const float unitsPerPixelY = (2.0f * m_bevRange) / static_cast<float>(qMax(1, height()));
-            m_viewPanX -= static_cast<float>(dx) * unitsPerPixelX;
-            m_viewPanY += static_cast<float>(dy) * unitsPerPixelY;
-        } else if (!m_isBevMode) {
-            m_rotationX += dy * 0.5f;
-            m_rotationY += dx * 0.5f;
-        }
+    // 俯视图左键平移；保留现有的滚轮缩放比例换算。
+    if (m_isBevMode && (event->buttons() & Qt::LeftButton)) {
+        const float aspect = static_cast<float>(width())
+            / static_cast<float>(qMax(1, height()));
+        slam_map_view::panOrthographic(
+            m_viewPanX, m_viewPanY, dx, dy, m_bevRange, aspect,
+            width(), height());
+        update();
+    // 3D 视图右键平移，左键仍只负责旋转。
+    } else if (!m_isBevMode && (event->buttons() & Qt::RightButton)) {
+        slam_map_view::panPerspective(
+            m_3dPanX, m_3dPanY, dx, dy, m_zOffset, height());
+        update();
+    } else if (!m_isBevMode && (event->buttons() & Qt::LeftButton)) {
+        m_rotationX += dy * 0.5f;
+        m_rotationY += dx * 0.5f;
         update();
     }
     m_lastMousePos = event->pos();

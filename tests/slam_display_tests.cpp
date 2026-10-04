@@ -1,4 +1,5 @@
 #include "SlamDisplayPolicy.h"
+#include "SlamMapViewInteraction.h"
 #include "UsvDirectionUtils.h"
 
 #include <cmath>
@@ -65,6 +66,38 @@ void testCompassConversion(int &failures)
           "west compass heading should map to OpenGL -X", failures);
 }
 
+void testMapViewPan(int &failures)
+{
+    float centerX = 0.0f;
+    float centerY = 0.0f;
+    slam_map_view::panOrthographic(centerX, centerY,
+                                   10, 5, 50.0f, 2.0f, 1000, 500);
+    check(std::abs(centerX + 2.0f) < 0.001f
+              && std::abs(centerY - 1.0f) < 0.001f,
+          "top-down drag should move the map with the pointer at map scale",
+          failures);
+
+    float perspectiveX = 0.0f;
+    float perspectiveY = 0.0f;
+    slam_map_view::panPerspective(perspectiveX, perspectiveY,
+                                  10, 5, 50.0f, 500);
+    const float unitsPerPixel =
+        2.0f * 50.0f * std::tan(22.5f * 3.14159265358979323846f / 180.0f)
+        / 500.0f;
+    check(std::abs(perspectiveX - 10.0f * unitsPerPixel) < 0.001f
+              && std::abs(perspectiveY + 5.0f * unitsPerPixel) < 0.001f,
+          "3D drag should pan in screen directions using view distance",
+          failures);
+
+    float fartherX = 0.0f;
+    float fartherY = 0.0f;
+    slam_map_view::panPerspective(fartherX, fartherY,
+                                  10, 5, 100.0f, 500);
+    check(std::abs(fartherX - 2.0f * perspectiveX) < 0.001f
+              && std::abs(fartherY - 2.0f * perspectiveY) < 0.001f,
+          "3D pan should scale with camera distance", failures);
+}
+
 } // namespace
 
 int main()
@@ -80,6 +113,7 @@ int main()
     }
     testMovementDirection(failures);
     testCompassConversion(failures);
+    testMapViewPan(failures);
     if (failures != 0)
         return 1;
     std::cout << "All SLAM display tests passed\n";

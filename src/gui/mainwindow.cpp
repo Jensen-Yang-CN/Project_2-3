@@ -1595,7 +1595,9 @@ void MainWindow::onSlamMapClicked()
     ui->openGLWidget->setSlamMapMode(checked);
     if (checked) {
         slamMapBtn->setText(tr("实时点云"));
-        ui->statusbar->showMessage(tr("SLAM 地图模式：俯视图下左键拖拽平移，滚轮缩放"), 4000);
+        ui->statusbar->showMessage(
+            tr("地图视图：俯视图左键平移；3D 左键旋转、右键平移；滚轮缩放"),
+            5000);
     } else {
         slamMapBtn->setText(tr("SLAM地图"));
         ui->statusbar->showMessage(tr("实时点云模式"), 3000);
@@ -1842,7 +1844,8 @@ void MainWindow::onExportClicked()
         QDialog dialog(this);
         dialog.setWindowTitle(tr("信息投递配置"));
         auto *layout = new QFormLayout(&dialog);
-        auto *ipEdit = new QLineEdit(QStringLiteral("101.1.101.105"), &dialog);
+        auto *ipEdit = new QLineEdit(
+            AppConfig::instance().network().delivery_remote_ip, &dialog);
         auto *portEdit = new QSpinBox(&dialog);
         auto *localIpEdit = new QLineEdit(QStringLiteral("101.1.101.177"), &dialog);
         auto *localPortEdit = new QSpinBox(&dialog);
@@ -1871,6 +1874,13 @@ void MainWindow::onExportClicked()
             QSignalBlocker blocker(exportBtn);
             exportBtn->setChecked(false);
             return;
+        }
+
+        QString configError;
+        if (!AppConfig::instance().saveDeliveryRemoteIp(
+                host.toString(), &configError)) {
+            appendDetectionLog(tr("[信息投递] 对端 IP 未能保存到配置文件：%1")
+                                   .arg(configError));
         }
 
         ensureExportThread();

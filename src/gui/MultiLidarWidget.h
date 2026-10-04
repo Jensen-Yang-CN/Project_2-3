@@ -161,6 +161,8 @@ private:
     float m_bevRange = 60.0f;  // 俯视图可见范围（米）
     float m_viewPanX = 0.0f;   // 俯视图/SLAM 地图平移中心（世界坐标，米）
     float m_viewPanY = 0.0f;
+    float m_3dPanX = 0.0f;     // 3D 相机平移（屏幕坐标系，米）
+    float m_3dPanY = 0.0f;
 
     usv::BerthMeasureResult m_berthResult;
     bool m_berthVisible = false;
