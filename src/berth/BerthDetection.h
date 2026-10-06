@@ -233,8 +233,11 @@ namespace usv {
                     const double angle_diff = angle_distance_180(
                         berths[i].angle, tracked_berths_[j].angle);
                     const double size_diff =
-                        std::abs(berths[i].w - tracked_berths_[j].w)
-                        + std::abs(berths[i].l - tracked_berths_[j].l);
+                        berth_recovery::hasReliableExpansionSize(
+                            tracked_berths_[j])
+                        ? std::abs(berths[i].w - tracked_berths_[j].w)
+                            + std::abs(berths[i].l - tracked_berths_[j].l)
+                        : 0.0;
                     const double score = distance + 0.05 * angle_diff
                         + 0.25 * size_diff;
                     if (distance < 20.0 && angle_diff < 45.0
@@ -341,6 +344,9 @@ namespace usv {
             auto append_single_anchor_recovery = [&](const Berth& size_reference,
                 size_t track_index, const char* context,
                 const Berth* search_roi_reference = nullptr) {
+                if (!berth_recovery::hasReliableExpansionSize(size_reference)) {
+                    return false;
+                }
                 Berth recovered;
                 Eigen::Vector3d single_anchor = Eigen::Vector3d::Zero();
                 int anchor_candidate_count = 0;
@@ -388,6 +394,10 @@ namespace usv {
                     }
 
                     for (size_t i = 0; i < tracked_berths_.size(); ++i) {
+                        if (!berth_recovery::hasReliableExpansionSize(
+                                tracked_berths_[i])) {
+                            continue;
+                        }
                         const size_t matched_idx = find_matching_berth_index(
                             tracked_berths_[i], final_berths);
                         if (matched_idx < final_berths.size()) {
@@ -482,6 +492,10 @@ namespace usv {
                     }
 
                     for (size_t i = 0; i < tracked_berths_.size(); ++i) {
+                        if (!berth_recovery::hasReliableExpansionSize(
+                                tracked_berths_[i])) {
+                            continue;
+                        }
                         Berth recovered;
                         Eigen::Vector3d anchor_a = Eigen::Vector3d::Zero();
                         Eigen::Vector3d anchor_b = Eigen::Vector3d::Zero();
@@ -602,6 +616,11 @@ namespace usv {
                             recovered_expand_max_m_,
                             recovered_expand_min_points_);
                     }
+                    if (b.used_default_expansion_size) {
+                        result.debug_messages.push_back(
+                            "[BerthDebug] no retained point-cloud expansion, use 10x10m fallback candidate=#"
+                            + std::to_string(i + 1));
+                    }
                     if (!is_valid_berth_size(b)) {
                         result.debug_messages.push_back(
                             "[BerthDebug] recovered berth invalid after expand, keep historical-size recovery candidate=#"
@@ -640,6 +659,11 @@ namespace usv {
                 else {
                     const Berth before_expand = b;
                     b = expand_berth_to_points(b, fused_points);
+                    if (b.used_default_expansion_size) {
+                        result.debug_messages.push_back(
+                            "[BerthDebug] no retained point-cloud expansion, use 10x10m fallback candidate=#"
+                            + std::to_string(i + 1));
+                    }
                     if (is_valid_berth_size(b)) {
                         std::string reason;
                         if (is_expansion_area_jump(before_expand, b, false, reason)) {
@@ -820,10 +844,10 @@ namespace usv {
                     result.expanded_berths = expanded_berths;
                     update_tracked_berths(
                         expanded_berths, expanded_is_recovered);
-                    append_output_size_history(expanded_berths);
                     update_line_roi(expanded_berths.front());
                 }
             }
+            append_output_size_history(expanded_berths);
             if (expanded_berths.empty()) {
                 ++consecutive_no_berth_frames_;
                 if (consecutive_no_berth_frames_ >= std::max(1, no_berth_reset_frames_)) {
@@ -1861,9 +1885,15 @@ namespace usv {
 
         size_t find_matching_berth_index(const Berth& berth,
             const std::vector<Berth>& candidates) const {
+            if (!berth_recovery::hasReliableExpansionSize(berth)) {
+                return candidates.size();
+            }
             double best_score = std::numeric_limits<double>::infinity();
             size_t best_idx = candidates.size();
             for (const Berth& candidate : candidates) {
+                if (!berth_recovery::hasReliableExpansionSize(candidate)) {
+                    continue;
+                }
                 const double dx = berth.cx - candidate.cx;
                 const double dy = berth.cy - candidate.cy;
                 const double dist = std::sqrt(dx * dx + dy * dy);
@@ -2048,8 +2078,11 @@ namespace usv {
                     const double dy = berths[i].cy - tracked_berths_[j].cy;
                     const double dist = std::sqrt(dx * dx + dy * dy);
                     const double angle_diff = angle_distance_180(berths[i].angle, tracked_berths_[j].angle);
-                    const double size_diff = std::abs(berths[i].w - tracked_berths_[j].w)
-                        + std::abs(berths[i].l - tracked_berths_[j].l);
+                    const double size_diff =
+                        berth_recovery::hasReliableExpansionSize(tracked_berths_[j])
+                        ? std::abs(berths[i].w - tracked_berths_[j].w)
+                            + std::abs(berths[i].l - tracked_berths_[j].l)
+                        : 0.0;
                     if (dist < 8.0 && angle_diff < 35.0) {
                         const double score = dist + 0.05 * angle_diff + 0.25 * size_diff;
                         if (score < best_score) {
@@ -2208,6 +2241,10 @@ namespace usv {
             debug = AnchorRecoveryDebug{};
             debug.tracked_w = tracked_berth.w;
             debug.tracked_l = tracked_berth.l;
+            if (!berth_recovery::hasReliableExpansionSize(tracked_berth)) {
+                debug.status = AnchorRecoveryStatus::InvalidTrackedBerthSize;
+                return false;
+            }
             debug.tracked_size_valid =
                 std::isfinite(tracked_berth.w) &&
                 std::isfinite(tracked_berth.l) &&
@@ -2681,6 +2718,9 @@ namespace usv {
             bool abnormal = false;
             double best_score = std::numeric_limits<double>::infinity();
             for (const Berth& tracked : tracked_berths_) {
+                if (!berth_recovery::hasReliableExpansionSize(tracked)) {
+                    continue;
+                }
                 const double dx = candidate.cx - tracked.cx;
                 const double dy = candidate.cy - tracked.cy;
                 const double dist = std::sqrt(dx * dx + dy * dy);
@@ -2802,6 +2842,9 @@ namespace usv {
             bool recovered,
             std::string& reason) const {
             reason.clear();
+            if (after.used_default_expansion_size) {
+                return false;
+            }
             const double before_area = before.w * before.l;
             const double after_area = after.w * after.l;
             if (!std::isfinite(before_area) || !std::isfinite(after_area) ||
@@ -2825,6 +2868,9 @@ namespace usv {
             double best_score = std::numeric_limits<double>::infinity();
             const Berth* matched_track = nullptr;
             for (const Berth& tracked : tracked_berths_) {
+                if (!berth_recovery::hasReliableExpansionSize(tracked)) {
+                    continue;
+                }
                 const double dx = before.cx - tracked.cx;
                 const double dy = before.cy - tracked.cy;
                 const double dist = std::sqrt(dx * dx + dy * dy);
@@ -2922,8 +2968,11 @@ namespace usv {
                     const double dy = berths[i].cy - tracked.cy;
                     const double dist = std::sqrt(dx * dx + dy * dy);
                     const double angle_diff = angle_distance_180(berths[i].angle, tracked.angle);
-                    const double size_diff = std::abs(berths[i].w - tracked.w)
-                        + std::abs(berths[i].l - tracked.l);
+                    const double size_diff =
+                        !berth_recovery::hasReliableExpansionSize(tracked)
+                        ? 0.0
+                        : std::abs(berths[i].w - tracked.w)
+                            + std::abs(berths[i].l - tracked.l);
                     if (dist < 8.0 && angle_diff < 35.0 && size_diff < 8.0) {
                         const double score = dist + 0.05 * angle_diff + 0.25 * size_diff;
                         if (score < best_score) {
@@ -2986,10 +3035,15 @@ namespace usv {
 
             std::vector<bool> used_tracks(tracked_berths_.size(), false);
             for (size_t i = 0; i < berths.size(); ++i) {
+                if (!berth_recovery::hasReliableExpansionSize(berths[i])) {
+                    continue;
+                }
                 double best_score = std::numeric_limits<double>::infinity();
                 size_t best_idx = tracked_berths_.size();
                 for (size_t j = 0; j < tracked_berths_.size(); ++j) {
-                    if (used_tracks[j]) {
+                    if (used_tracks[j] ||
+                        !berth_recovery::canStabilizeSizeFromTrackedBerth(
+                            berths[i], tracked_berths_[j])) {
                         continue;
                     }
                     const double dx = berths[i].cx - tracked_berths_[j].cx;
@@ -3063,6 +3117,9 @@ namespace usv {
 
             const double max_ratio = std::max(1.0, size_smooth_max_ratio_);
             for (size_t i = 0; i < berths.size(); ++i) {
+                if (!berth_recovery::hasReliableExpansionSize(berths[i])) {
+                    continue;
+                }
                 double sum_w = 0.0;
                 double sum_l = 0.0;
                 int match_count = 0;
@@ -3128,16 +3185,10 @@ namespace usv {
         }
 
         void append_output_size_history(const std::vector<Berth>& berths) {
-            if (berths.empty()) {
-                return;
-            }
-
-            output_size_history_.push_back(berths);
             const size_t max_frames = static_cast<size_t>(
                 std::max(1, size_smooth_history_frames_));
-            while (output_size_history_.size() > max_frames) {
-                output_size_history_.pop_front();
-            }
+            berth_recovery::appendExpansionSizeHistoryFrame(
+                output_size_history_, berths, max_frames);
         }
 
         std::vector<Berth> process_marina_berths(const std::vector<Eigen::Vector3d>& points) {
@@ -3252,7 +3303,9 @@ namespace usv {
             for (const auto& pt : points) {
                 if (pt.z() > z_min_ && pt.z() < z_max_) pts_2d.push_back({ pt.x(), pt.y() });
             }
-            if (pts_2d.empty()) return b;
+            if (pts_2d.empty()) {
+                return berth_recovery::makeDefaultExpansionFallback(b);
+            }
 
             double rad = b.angle * M_PI / 180.0;
             double cos_a = std::cos(rad), sin_a = std::sin(rad);
@@ -3332,6 +3385,10 @@ namespace usv {
             if (!hit_y_pos) bound_y_pos = b.l / 2.0;
             if (!hit_y_neg) bound_y_neg = -b.l / 2.0;
 
+            if (!hit_x_pos && !hit_x_neg && !hit_y_pos && !hit_y_neg) {
+                return berth_recovery::makeDefaultExpansionFallback(b);
+            }
+
             double local_cx = (bound_x_pos + bound_x_neg) / 2.0;
             double local_cy = (bound_y_pos + bound_y_neg) / 2.0;
 
@@ -3342,6 +3399,7 @@ namespace usv {
             new_b.l = bound_y_pos - bound_y_neg;
             new_b.angle = b.angle;
             new_b.opening_edge = b.opening_edge;
+            new_b.used_default_expansion_size = false;
             return new_b;
         }
 

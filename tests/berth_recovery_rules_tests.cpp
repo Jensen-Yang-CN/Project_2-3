@@ -38,6 +38,65 @@ void testExpansionStopsAtTenMetersPerDimension()
           "an expansion step must not cross 10 m");
 }
 
+void testDefaultExpansionFallbackDoesNotPolluteSizeHistory()
+{
+    usv::Berth original;
+    original.cx = 12.0;
+    original.cy = -7.0;
+    original.w = 2.0;
+    original.l = 4.0;
+    original.angle = 37.0;
+    original.opening_edge = 2;
+
+    const usv::Berth fallback =
+        usv::berth_recovery::makeDefaultExpansionFallback(original);
+    check(std::abs(fallback.w - 10.0) < 1e-9
+              && std::abs(fallback.l - 10.0) < 1e-9,
+          "a berth with no valid expansion must receive a 10 x 10 m fallback");
+    check(std::abs(fallback.cx - original.cx) < 1e-9
+              && std::abs(fallback.cy - original.cy) < 1e-9
+              && std::abs(fallback.angle - original.angle) < 1e-9
+              && fallback.opening_edge == original.opening_edge,
+          "fallback size must preserve the detected berth position and orientation");
+    check(fallback.used_default_expansion_size,
+          "fallback berth must be tagged as using a default expansion size");
+    check(!usv::berth_recovery::hasReliableExpansionSize(fallback),
+          "fallback size must not be stored as historical smoothing data");
+    check(usv::berth_recovery::hasReliableExpansionSize(original),
+          "normal detected size must remain eligible for historical smoothing");
+    check(!usv::berth_recovery::canStabilizeSizeFromTrackedBerth(
+              fallback, original),
+          "fallback candidate must not occupy a size-stabilization match");
+    check(!usv::berth_recovery::canStabilizeSizeFromTrackedBerth(
+              original, fallback),
+          "fallback track must not occupy a size-stabilization match");
+    check(usv::berth_recovery::canStabilizeSizeFromTrackedBerth(
+              original, original),
+          "measured candidate and track remain eligible for size stabilization");
+}
+
+void testFallbackFramesAdvanceAndExpireSizeHistory()
+{
+    usv::Berth measured;
+    measured.w = 5.0;
+    measured.l = 15.0;
+    const usv::Berth fallback =
+        usv::berth_recovery::makeDefaultExpansionFallback(measured);
+    std::deque<std::vector<usv::Berth>> history;
+
+    usv::berth_recovery::appendExpansionSizeHistoryFrame(
+        history, {measured}, 2);
+    usv::berth_recovery::appendExpansionSizeHistoryFrame(
+        history, {fallback}, 2);
+    check(history.size() == 2 && history.back().empty(),
+          "a fallback-only frame must advance history without storing fallback size");
+
+    usv::berth_recovery::appendExpansionSizeHistoryFrame(
+        history, {fallback}, 2);
+    check(history.size() == 2 && history.front().empty(),
+          "fallback frames must evict stale measured sizes from the bounded history");
+}
+
 void testSingleAnchorOverlappingStableBerthIsRejected()
 {
     usv::Berth stable;
@@ -93,6 +152,8 @@ int main()
 {
     testAnchorPairDistanceUsesNineMeterThreshold();
     testExpansionStopsAtTenMetersPerDimension();
+    testDefaultExpansionFallbackDoesNotPolluteSizeHistory();
+    testFallbackFramesAdvanceAndExpireSizeHistory();
     testSingleAnchorOverlappingStableBerthIsRejected();
     testDetectorAcceptsProjectedWorldRecoveryContext();
 

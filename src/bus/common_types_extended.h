@@ -110,6 +110,8 @@ struct Berth {
     BerthDetectionSource source = BerthDetectionSource::Realtime;
     /** 内部来源：锚点恢复结果，不写入对外协议 */
     bool is_anchor_recovered = false;
+    /** 内部标记：扩框无有效点云扩展时采用兜底尺寸，不参与尺寸历史平滑 */
+    bool used_default_expansion_size = false;
     // Internal occupancy state; not part of the external berth protocol.
     bool has_ship = false;
     int interior_point_count = 0;
